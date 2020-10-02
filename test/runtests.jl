@@ -1,6 +1,6 @@
-using HelmholtzModels
+using ThermoModels
 using Test
 
-@testset "HelmholtzModels.jl" begin
+@testset "ThermoModels.jl" begin
     # Write your tests here.
 end
