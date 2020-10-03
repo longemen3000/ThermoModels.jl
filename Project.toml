@@ -13,6 +13,7 @@ ThermoState = "e7b6519d-fdf7-4a33-b544-2b37a9c1234a"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [compat]
+ForwardDiff = "0.10"
 ThermoState = "0.3.1 - 0.4.0"
 Unitful = "0.15 - 1.4.1"
 julia = "1.5"
