@@ -197,8 +197,8 @@ function flash_impl(mt::SingleSatT,model::HelmholtzModel, _t)
             end
 
         end
-        phase1 = state(mol_v = v1, T= t,phase=:liquid)
-        phase2 = state(mol_v = v2, T= t,phase=:gas)
+        phase1 = state(mol_v = v1, p= px,phase=:liquid)
+        phase2 = state(mol_v = v2, p= px,phase=:gas)
         return (phase1, phase2)
     end
 end
@@ -208,13 +208,67 @@ function equilibria(model::HelmholtzModel,st::ThermodynamicState)
 end
 
 function equilibria(mt::SingleSatP,model::HelmholtzModel,st::ThermodynamicState)
-    p = ThermoState.pressure(FromState(),st)
+    p = pressure(FromState(),st)
     return flash_impl(mt,model,p)
 end
 
+function equilibria(mt::SingleΦP,model::HelmholtzModel,st::ThermodynamicState)
+    p = pressure(FromState(),st)
+    ϕ = quality(FromState(),st)
+    m = mass(FromState()st,u"kg",molecular_weight(model))
+    mv = ϕ*m
+    ml = (1-ϕ)*m
+    st_l, st_g = flash_impl(mt,model,p)
+    Teq = temperature(FromState(),st_l)
+    vl = mol_volume(FromState(),st_l)
+    vg = mol_volume(FromState(),st_g)
+    tagl = :liquid
+    tagv = :gas
+    st1 = state(mass=ml,t=Teq,mol_v=vl,phase=tagl)
+    st2 = state(mass=mv,t=Teq,mol_v=vv,phase=tagv)
+    return (st1,st2)
+end
+
 function equilibria(mt::SingleSatT,model::HelmholtzModel,st::ThermodynamicState)
-    t = ThermoState.temperature(FromState(),st)
+    t = temperature(FromState(),st)
     return flash_impl(mt,model,t)
 end
 
+function equilibria(mt::SingleΦT,model::HelmholtzModel,st::ThermodynamicState)
+    t = temperature(FromState(),st)
+    ϕ = quality(FromState(),st)
+    m = mass(FromState()st,u"kg",molecular_weight(model))
+    mv = ϕ*m
+    ml = (1-ϕ)*m
+    st_l, st_g = flash_impl(mt,model,t)
+    Peq = pressure(FromState(),st_l)
+    vl = mol_volume(FromState(),st_l)
+    vg = mol_volume(FromState(),st_g)
+    tagl = :liquid
+    tagv = :gas
+    st1 = state(mass=ml,p=Peq,mol_v=vl,phase=tagl)
+    st2 = state(mass=mv,p=Peq,mol_v=vv,phase=tagv)
+    return (st1,st2)
+end
 
+function pressure(mt::SingleSatT,model::HelmholtzModel,st::ThermodynamicState,unit)
+    t = temperature(FromState(),st)
+    st_l, st_g = flash_impl(mt,model,t)
+    Peq = pressure(FromState(),st_l)
+    return convert_unit(u"Pa",unit,Peq)
+end
+
+function temperature(mt::SingleSatP,model::HelmholtzModel,st::ThermodynamicState,unit)
+    p = pressure(FromState(),st)
+    st_l, st_g = flash_impl(mt,model,p)
+    Teq = temperature(FromState(),st_l)
+    return convert_unit(u"K",unit,Teq)
+end
+
+function pressure(mt::SingleΦT,model::HelmholtzModel,st::ThermodynamicState,unit)
+    return pressure(QuickStates.sat_t(),model,st,unit)
+end
+
+function temperature(mt::SingleΦP,model::HelmholtzModel,st::ThermodynamicState,unit)
+    return temperature(QuickStates.sat_p(),model,st,unit)
+end
