@@ -170,3 +170,54 @@ function autonewton(f,x::T) where T
     ∂f∂x = only(DiffResults.gradient(_∂f))
     return fx/∂f∂x
 end
+
+function f_dfdx(f,x::T) where T
+    _f(z) = f(only(z))
+    x_vec =   SVector(x)
+    ∂result = DiffResults.GradientResult(x_vec)  
+    _∂f =  ForwardDiff.gradient!(∂result, _f,x_vec)
+    fx =  DiffResults.value(_∂f)
+    ∂f∂x = only(DiffResults.gradient(_∂f))
+    return (fx,∂f∂x)
+end
+
+function normalizefrac!!(x::Vector)
+    x0 = zero(eltype(x))
+    f(xi) = xi < x0 ? -x0 : xi
+    xn = one(x0)/sum(f,x)
+    map!(xi -> abs(f(xi)*xn),x,x)
+    return x
+end
+
+function normalizefrac!!(x)
+    x0 = zero(eltype(x))
+    f(xi) = xi < x0 ? x0 : xi
+    xn = x0/sum(f,x)
+    return map(xi -> abs(f(xi)*xn),x)
+end
+
+function nan_to_num(xi)
+    if x == typemax(xi)
+        return prevfloat(xi)
+    elseif isnan(xi)
+        return zero(xi)
+    else
+        return xi
+    end
+end
+
+function gdem(X, X1, X2, X3)
+    dX2 = X - X3
+    dX1 = X - X2
+    dX = X - X1
+    b01 = dot(dX1,dX)
+    b02 = dot(dX2,dX)
+    b12 = dot(dX2,dX1)
+    b11 = dot(dX1,dX1)
+    b22 = dot(dX2,dX2)
+    den = b11*b22-abs2(b12)
+    mu1 = (b02*b12 - b01*b22)/den
+    mu2 = (b01*b12 - b02*b11)/den
+    dacc = (dX - mu2*dX1)/(1+mu1+mu2)
+    return nan_to_num(dacc)
+end

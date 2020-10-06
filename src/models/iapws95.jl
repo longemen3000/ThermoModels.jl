@@ -98,17 +98,45 @@ function mol_helmholtz_impl(mt::SingleVT,model::IAPWS95,v,T)
    #R value calculated from molecular weight and specific gas constant
     #return 8.3143713575874*T*_f(model, molar_to_weight(1/v,[model.molecularWeight],[1.0]),T)
     #println(molar_to_weight(1/v,[model.molecularWeight],[1.0]))'    
-    mass_v =  (v/18.015268)*1000.0
+    mass_v =  v*1000.0*0.055508472036052976
     rho = one(mass_v)/mass_v
     return 8.3143713575874*T*_f(model,rho,T)
 end
+
+function mol_helmholtz0_impl(mt::SingleVT,model::IAPWS95,v,T) 
+    #R value calculated from molecular weight and specific gas constant
+     #return 8.3143713575874*T*_f(model, molar_to_weight(1/v,[model.molecularWeight],[1.0]),T)
+     #println(molar_to_weight(1/v,[model.molecularWeight],[1.0]))'    
+     mass_v =  v*1000.0*0.055508472036052976
+     rho = one(mass_v)/mass_v
+     return 8.3143713575874*T*_f0(model,rho,T)
+end
+
+function mol_helmholtzR_impl(mt::SingleVT,model::IAPWS95,v,T) 
+    #R value calculated from molecular weight and specific gas constant
+     #return 8.3143713575874*T*_f(model, molar_to_weight(1/v,[model.molecularWeight],[1.0]),T)
+     #println(molar_to_weight(1/v,[model.molecularWeight],[1.0]))'    
+     mass_v =  v*1000.0*0.055508472036052976
+     rho = one(mass_v)/mass_v
+     return 8.3143713575874*T*_fr(model,rho,T)
+end
+
+function αR_impl(mt::SingleVT,model::IAPWS95,_rho,T) 
+    #R value calculated from molecular weight and specific gas constant
+     #return 8.3143713575874*T*_f(model, molar_to_weight(1/v,[model.molecularWeight],[1.0]),T)
+     #println(molar_to_weight(1/v,[model.molecularWeight],[1.0]))'    
+     rho =  0.018015268*_rho
+     return _fr(model,rho,T)
+end
+
+
 model_type(x::IAPWS95) = QuickStates.vt()
 volume_solver_type(x::IAPWS95) = VolumeBisection()
 function Base.show(io::IO,model::IAPWS95) 
     print("IAPWS95 model for water")
 end
 
-molecular_weight(model::IAPWS95) = model.mw #MW
+molecular_weight(model::IAPWS95) = 18.015268#MW
 covolumes(model::IAPWS95) =1.4981e-5 #10000 bar
 
 SingleSatPredictor(model::IAPWS95) = WaterIF97()
@@ -125,13 +153,6 @@ pressure(model::IAPWS95,st::TriplePoint,unit=u"Pa")  = convert_unit(u"Pa",unit,6
 
 
 acentric_factor(model::IAPWS95) = 0.344861
-
-
-function test()
-    s1 = state(t=300,mass_rho=0.9965560e-3)
-    s2 = state(t=500,mass_rho=0.435)
-    s3 = state(t=900,mass_rho=0.241)
-end
 
 temperature(model::IAPWS95,st::NormalBoilingPoint,unit=u"K")  = convert_unit(u"K",unit,373.15)
 temperature(model::IAPWS95,st::TriplePoint,unit=u"K")  = convert_unit(u"K",unit,273.16)

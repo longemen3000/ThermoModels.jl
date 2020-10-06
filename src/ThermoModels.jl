@@ -41,7 +41,12 @@ include("base/saturation.jl")
 include("models/saturation.jl")
 
 include("base/helmholtz/helmholtz.jl")
+include("base/helmholtz/cubic.jl")
+
 include("base/helmholtz/equilibria_single.jl")
+include("base/helmholtz/equilibria_pt.jl")
+
+include("models/cubic.jl")
 
 
 include("models/iapws95.jl")
@@ -51,6 +56,6 @@ include("models/if97/if97.jl")
 export IAPWS95, WaterIF97, GERG2008
 export Saturation 
 export equilibria,kvalues
-export Test1
+export fugacity_coeff_impl,kvalues
 
 end

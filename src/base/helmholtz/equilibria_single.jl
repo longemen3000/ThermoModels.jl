@@ -45,7 +45,7 @@ function volume_solver(
     x,
     v0 = nothing;
     no_pts = 7)
-    _p(z) = pressure_impl(QuickStates.vt(),model, z, t, x)
+    _p(z) = pressure_impl(QuickStates.vtx(),model, z, t, x)
     fp(z) = _p(z) - p
     dfp(z) = ForwardDiff.derivative(fp, z)
     if isnothing(v0)
@@ -80,14 +80,14 @@ function flash_impl(mt::SingleSatP,model::HelmholtzModel, _p)
     function v_solver(p0,t0,v0=nothing,pts=7) 
         return volume_solver(QuickStates.pt(),volume_solver_type(model),model,p0,t0,v0,no_pts=pts)
     end
-    if (Pc = ThermoState.pressure(model,CriticalPoint())) ≈ p
-        vc = ThermoState.mol_volume(model,CriticalPoint())
-        tc=ThermoState.temperature(model,CriticalPoint())
+    if (Pc = pressure(model,CriticalPoint())) ≈ p
+        vc = mol_volume(model,CriticalPoint())
+        tc=temperature(model,CriticalPoint())
         return state(mol_v=vc,t=tc)
     elseif p > Pc
         throw(error("the phase is supercritical at pressure = $p Pa"))
     end
-    Tc = ThermoState.temperature(model,CriticalPoint())
+    Tc = temperature(model,CriticalPoint())
     model_pred = SingleSatPredictor(model)
     t_pred = temperature_impl(mt,model_pred,p)
     vv = v_solver(p,t_pred,nothing,21)
@@ -97,7 +97,7 @@ function flash_impl(mt::SingleSatP,model::HelmholtzModel, _p)
         v1 = first(vv)
         v2 = last(vv)
         px = p
-        _A(z, T) = mol_helmholtz_impl(QuickStates.vt(),model, z, T)
+        _A(z, t) = mol_helmholtz_impl(QuickStates.vt(),model, z, t)
         v1old = 0.0
         v2old = 0.0
         Told = -100.0
@@ -119,7 +119,9 @@ function flash_impl(mt::SingleSatP,model::HelmholtzModel, _p)
                 #println("v2 condition")
                 break
             end
+            
             _px(T) = (_A(v1, T) - _A(v2, T)) / (v2 - v1) - p
+            #_px(T) = exp(_A(v1,T)-_A(v2,T)) - one(Tx)
             Told = Tx
             Tx = Roots.find_zero(_px, Tx)
             if abs(Told - Tx) < 1e-10 * Tx
@@ -141,7 +143,7 @@ function flash_impl(mt::SingleSatT,model::HelmholtzModel, _t)
         return volume_solver(QuickStates.pt(),volume_solver_type(model),model,p0,t0,v0,no_pts=pts)
     end
     if tc ≈ t
-        return helmholtz_phase(model, dot(critical_volume(model), x), T,)
+        return state(mol_v=mol_volume(model,CriticalPoint()),t=tc)
     elseif t > tc
         throw(error("the phase is supercritical at temperature = $T K"))
     end
@@ -168,7 +170,7 @@ function flash_impl(mt::SingleSatT,model::HelmholtzModel, _t)
         p1 = _p(v1)
         p2 = _p(v2)
         px = p_pred
-        A(z) = mol_helmholtz_impl(QuickStates.vt(),model, z, t)
+        A(z) = fugacity_coeff_impl(QuickStates.vt(),model, z, t)
         v1old = 0
         v2old = 0
         for i = 1:20
@@ -189,7 +191,8 @@ function flash_impl(mt::SingleSatT,model::HelmholtzModel, _t)
                 break
             end
             pold = px
-            px = (A(v1) - A(v2)) / (v2 - v1)
+            px = px*exp(A(v1)-A(v2))
+            #px = (A(v1) - A(v2)) / (v2 - v1)
             #@show px
             if abs(pold - px) < 1e-10 * px
                 #println("P condition")
@@ -197,8 +200,9 @@ function flash_impl(mt::SingleSatT,model::HelmholtzModel, _t)
             end
 
         end
-        phase1 = state(mol_v = v1, p= px,phase=:liquid)
-        phase2 = state(mol_v = v2, p= px,phase=:gas)
+        #exp(logphi)*P= f
+        phase1 = state(mol_v = v1, t= t,phase=:liquid)
+        phase2 = state(mol_v = v2, t= t,phase=:gas)
         return (phase1, phase2)
     end
 end
@@ -254,7 +258,9 @@ end
 function pressure(mt::SingleSatT,model::HelmholtzModel,st::ThermodynamicState,unit)
     t = temperature(FromState(),st)
     st_l, st_g = flash_impl(mt,model,t)
-    Peq = pressure(FromState(),st_l)
+    p1 = pressure(model,st_l)
+    p2 = pressure(model,st_g)
+    Peq = 0.5*(p1+p2)
     return convert_unit(u"Pa",unit,Peq)
 end
 

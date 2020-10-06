@@ -10,7 +10,9 @@ const _vtx = (
 
 
 function ∂a∂v(mt::SingleVT,model::HelmholtzModel,v,t)
-return ForwardDiff.derivative(dv->mol_helmholtz_impl(mt,model,dv,t),v)
+    return ForwardDiff.derivative(dv->mol_helmholtz_impl(mt,model,dv,t),v)
+    #return ForwardDiff.derivative(dv->mol_helmholtzR_impl(mt,model,dv,t),v) -RGAS*t/v
+
 end
 
 function ∂a∂v(mt::MultiVT,model::HelmholtzModel,v,t,x)
@@ -55,22 +57,28 @@ end
 
 
 function pressure_impl(mt::SingleVT,model::HelmholtzModel,v,t)
-    return -∂a∂v(mt,model,v,t)
+    rho = one(v)/v
+    dαdrho = ForwardDiff.derivative(drho->αR_impl(mt,model,drho,t),inv(v))
+    return rho*(one(rho)+rho*dαdrho)*RGAS*t
+
 end
 
 function pressure_impl(mt::MultiVT,model::HelmholtzModel,v,t,x)
-    return -∂a∂v(mt,model,v,t,x)
+    rho = one(v)/v
+    dαdrho = ForwardDiff.derivative(drho->αR_impl(mt,model,drho,t,x),inv(v))
+    return rho*(one(rho)+rho*dαdrho)*RGAS*t
 end
 
 function compresibility_factor_impl(mt::SingleVT,model::HelmholtzModel,v,t)
-    p = pressure_impl(mt,model,v,t,x)
-    return p*v/(RGAS*T)
+    p = pressure_impl(mt,model,v,t)
+    return p*v/(RGAS*t)
 end
 
 function compresibility_factor_impl(mt::MultiVT,model::HelmholtzModel,v,t,x)
     p = pressure_impl(mt,model,v,t,x)
-    return p*v/(RGAS*T)
+    return p*v/(RGAS*t)
 end
+
 
 function mol_entropy_impl(mt::SingleVT,model::HelmholtzModel,v,t)
     return -∂a∂t(mt,model,v,t)

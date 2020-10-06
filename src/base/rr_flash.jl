@@ -44,13 +44,13 @@ function rr_find_zero(f0,(vmin,vmax),method::Roots.AbstractBracketing)
 end
 
 function rr_find_zero(f0,(vmin,vmax),method::Roots.AbstractNonBracketing)
-    β0 = (vfmin+vfmax)/2
+    β0 = (vmin+vmax)/2
     return Roots.find_zero(f0,β0,method)
 end
 
 
 function rr_find_zero(f0,(vmin,vmax),method::Roots.Newton)
-    β0 = (vfmin+vfmax)/2
+    β0 = (vmin+vmax)/2
     AD_f0(x) = autonewton(f0,x)
     return Roots.find_zero(f0,β0,method)
 end
@@ -68,8 +68,8 @@ function flash_vfrac(model::RR,K,Z,roots_method=Roots.Order0())
         return z*km1/(1+β*km1)
     end
     f0(β) = mapreduce((k,z)->rr(k,z,β),+,K,Z)
-    βres = rr_find_zero(f0,(vfmin,vfmax),method)
-    return res
+    βres = rr_find_zero(f0,(vfmin,vfmax),roots_method)
+    return βres
 end
 
 function flash_vfrac(model::LeiboviciNichita,K,Z,roots_method=Roots.Newton())
@@ -87,7 +87,7 @@ function flash_vfrac(model::LeiboviciNichita,K,Z,roots_method=Roots.Newton())
         c = 1/(1-k)
         return z/_y((y)-c)
     end
-
+    println((_y(vfmin),_y(vfmax)))
     f0(β) = mapreduce((k,z)->rr(k,z,β),+,K,Z)
     yres = rr_find_zero(f0,(_y(vfmin),_y(vfmax)),roots_method)
     return _λ(yres)
@@ -129,6 +129,23 @@ function flash_eval(K,Z,β)
     end
 end
 
+function flash_vapor(k,z,β)
+    function f(ki,zi)
+    _1 = one(ki) 
+        return ki*zi/(_1+β*(ki-_1))
+    end
+
+    return map(f,k,z)
+end
+
+function flash_liquid(k,z,β)
+    function f(ki,zi)
+        _1 = one(ki) 
+    return zi/(_1+β*(ki-_1))
+    end
+    return map(f,k,z)
+end
+
 
 
 struct WilsonK{T} <: ThermoModel 
@@ -143,7 +160,22 @@ struct MollerupK{T} <: ThermoModel
     ω::T
 end
 
+WilsonK(;pc,tc,ω) = WilsonK(pc,tc,ω)
+MollerupK(;pc,tc,ω) = MollerupK(pc,tc,ω)
 
+function WilsonK(model::ThermoModel)
+    _tc = temperature(model,CriticalPoint(),u"K")
+    _pc = pressure(model,CriticalPoint(),u"Pa")
+    _ω = acentric_factor(model)
+    return WilsonK(_pc,_tc,_ω)
+end
+
+function MollerupK(model::ThermoModel)
+    _tc = temperature(model,CriticalPoint(),u"K")
+    _pc = pressure(model,CriticalPoint(),u"Pa")
+    _ω = acentric_factor(model)
+    return MollerupK(_pc,_tc,_ω)
+end
 
 function kvalues(mt::MultiPT,model::WilsonK,st::ThermodynamicState)
     p = pressure(FromState(),st)
@@ -152,9 +184,9 @@ function kvalues(mt::MultiPT,model::WilsonK,st::ThermodynamicState)
 end
 
 function kvalues_impl(mt::MultiPT,model::WilsonK,p,t)
-    pc = pressure(model,CriticalPoint())
-    tc = temperature(model,CriticalPoint())
-    ω = acentric_factor(model)
+    pc =model.pc
+    tc = model.tc
+    ω = model.ω
     return exp.(log.(pc./p).+5.373 .*(1.0 .+ ω).*(1.0 .-tc./t))
 end
 

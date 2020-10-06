@@ -10,8 +10,6 @@ function temperature_impl(mt::SingleSatP,model::T,p) where T<:SaturationModel
     return t
 end
 
-temperature_impl(model::SaturationModel,p) =temperature_impl(QuickStates.sat_p(),model,p)
-
 function temperature_impl(mt::SingleΦP,model::SaturationModel,p)
     f0(t) = temperature_impl(QuickStates.sat_t(),model,t)-p
     df0(t) = ForwardDiff.derivative(f0,t)
@@ -23,8 +21,6 @@ end
 function pressure_impl(mt::SingleΦT,model::SaturationModel,p)
     return pressure_impl(QuickStates.sat_t(),model,t)
 end
-
-pressure_impl(model::SaturationModel,t) =pressure_impl(QuickStates.sat_t(),model,t)
 
 function pressure(model::SaturationModel,st::ThermodynamicState,unit=u"Pa")
     return pressure(state_type(st),model,st,unit)
@@ -55,3 +51,6 @@ function critical_sat_interpolation(model::SaturationModel,p)
     h = 2.3333333333333335*log(pc/p7)
     return 1/(1-log(p/pc)/h)*tc
 end
+
+#for multiple values
+
