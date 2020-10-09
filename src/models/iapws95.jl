@@ -141,21 +141,22 @@ covolumes(model::IAPWS95) =1.4981e-5 #10000 bar
 
 SingleSatPredictor(model::IAPWS95) = WaterIF97()
 
-function temperature(model::IAPWS95,st::CriticalPoint,unit=u"K")  
+function temperature(model::IAPWS95,::CriticalPoint,unit=u"K")  
     return convert_unit(u"K",unit,647.096)
 end
-pressure(model::IAPWS95,st::CriticalPoint,unit=u"Pa")  = convert_unit(u"Pa",unit,2.2064e7)
-mol_volume(model::IAPWS95,st::CriticalPoint,unit=u"m^3/mol")  = convert_unit(u"m^3/mol",unit,5.594803726708074e-5)
-mol_density(model::IAPWS95,st::CriticalPoint,unit=u"mol/m^3")  = convert_unit(u"mol/m^3",unit,17873.72799560906)
-mass_density(model::IAPWS95,st::CriticalPoint,unit=u"kg/m^3")  = convert_unit(u"kg/m^3",unit,322.0)
-mass_volume(model::IAPWS95,st::CriticalPoint,unit=u"m^3/kg")  = convert_unit(u"m^3/kg",unit,0.003105590062111801)
-pressure(model::IAPWS95,st::TriplePoint,unit=u"Pa")  = convert_unit(u"Pa",unit,611.657)
+pressure(model::IAPWS95,::CriticalPoint,unit=u"Pa")  = convert_unit(u"Pa",unit,2.2064e7)
+mol_volume(model::IAPWS95,::CriticalPoint,unit=u"m^3/mol")  = convert_unit(u"m^3/mol",unit,5.594803726708074e-5)
+mol_density(model::IAPWS95,::CriticalPoint,unit=u"mol/m^3")  = convert_unit(u"mol/m^3",unit,17873.72799560906)
+mass_density(model::IAPWS95,::CriticalPoint,unit=u"kg/m^3")  = convert_unit(u"kg/m^3",unit,322.0)
+mass_volume(model::IAPWS95,::CriticalPoint,unit=u"m^3/kg")  = convert_unit(u"m^3/kg",unit,0.003105590062111801)
 
 
 acentric_factor(model::IAPWS95) = 0.344861
 
-temperature(model::IAPWS95,st::NormalBoilingPoint,unit=u"K")  = convert_unit(u"K",unit,373.15)
-temperature(model::IAPWS95,st::TriplePoint,unit=u"K")  = convert_unit(u"K",unit,273.16)
+temperature(model::IAPWS95,::NormalBoilingPoint,unit=u"K")  = convert_unit(u"K",unit,373.15)
+
+temperature(model::IAPWS95,::TriplePoint,unit=u"K")  = convert_unit(u"K",unit,273.16)
+pressure(model::IAPWS95,::TriplePoint,unit=u"Pa")  = convert_unit(u"Pa",unit,611.657)
 
 
 

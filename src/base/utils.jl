@@ -21,34 +21,31 @@ returns an efficient implementation of:
 where `op(p[i],p[j]) == op(p[j],p[i])`
 
 """ 
-function mixing_rule(op, x, p)
-    N = length(x)
-    @boundscheck checkbounds(p, N)
-    @inbounds begin
-        res1 = zero(eltype(x))
-        for i = 1:N
-            res1 += p[i] * x[i]^2
-            for j = 1:i - 1
-                res1 += 2 * x[i] * x[j] * op(p[i], p[j])
+function mixing_rule(op, x, p,A=nothing)
+    if isnothing(A)
+        N = length(x)
+        @boundscheck checkbounds(p, N)
+        @inbounds begin
+            res1 = zero(eltype(x))
+            for i = 1:N
+                res1 += p[i] * x[i]^2
+                for j = 1:i - 1
+                    res1 += 2 * x[i] * x[j] * op(p[i], p[j])
+                end
             end
         end
+        return res1
+    else
+        return mixing_rulea(op,x,p,A)
     end
-    return res1
 end
 # 
 # Abstract mixing rule, generates a mixing rule,based on 
 # an operation, so mij = xi*xj*op(pi,pj)*Aij
 # example: mixing_rule(geometric_mean_rule,x,Tc,1.-K)
 # 
-"""
-    mixing_rule(op, x, p,A)
 
-returns an efficient implementation of:
-`sum(A[i,j]*x[i]*x[j]*op(p[i],p[j]) for i = 1:n , j = 1:n)`
-where `op(p[i],p[j]) == op(p[j],p[i])`
-
-""" 
-function mixing_rule(op, x, p, A)
+function mixing_rulea(op, x, p, A)
     N = length(x)
     checkbounds(A, N, N)
     @boundscheck checkbounds(p, N)
@@ -103,17 +100,6 @@ function mixing_rule_asymetric(op, op_asym, x, p, A, A_asym)
     return res1
 end
 
-geometric_mean_rule(a, b) = sqrt(a * b)
-
-arithmetic_mean_rule(a, b) = (a + b) / 2
-
-harmonic_mean_rule(a, b) = 2 * a * b / (a + b)
-
-cubic_mean_rule(a, b) = ((a^(1 / 3) + b^(1 / 3)) / 2)^3
-
-_power_mean_rule(a, b, n) = ((a^(1 / n) + b^(1 / n)) / 2)^n
-
-power_mean_rule(n) = (a, b) -> _power_mean_rule(a, b, n)
 
 
 """

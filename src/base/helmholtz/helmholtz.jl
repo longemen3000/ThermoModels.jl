@@ -12,16 +12,15 @@ const _vtx = (
 function ∂a∂v(mt::SingleVT,model::HelmholtzModel,v,t)
     return ForwardDiff.derivative(dv->mol_helmholtz_impl(mt,model,dv,t),v)
     #return ForwardDiff.derivative(dv->mol_helmholtzR_impl(mt,model,dv,t),v) -RGAS*t/v
-
 end
 
-function ∂a∂v(mt::MultiVT,model::HelmholtzModel,v,t,x)
+function ∂a∂v(mt::MT,model::T,v,t,x) where {MT<:MultiVT,T <: HelmholtzModel}
     return ForwardDiff.derivative(dv->mol_helmholtz_impl(mt,model,dv,t,x),v)
 end
 
 function ∂a∂t(mt::SingleVT,model::HelmholtzModel,v,t)
     return ForwardDiff.derivative(dt->mol_helmholtz_impl(mt,model,v,dt),t)
-    end
+end
     
 function ∂a∂t(mt::MultiVT,model::HelmholtzModel,v,t,x)
     return ForwardDiff.derivative(dt->mol_helmholtz_impl(mt,model,v,dt,x),t)
@@ -56,14 +55,14 @@ end
 
 
 
-function pressure_impl(mt::SingleVT,model::HelmholtzModel,v,t)
+function pressure_impl(mt::SingleVT,model::T,v,t) where T<: HelmholtzModel
     rho = one(v)/v
     dαdrho = ForwardDiff.derivative(drho->αR_impl(mt,model,drho,t),inv(v))
     return rho*(one(rho)+rho*dαdrho)*RGAS*t
 
 end
 
-function pressure_impl(mt::MultiVT,model::HelmholtzModel,v,t,x)
+function pressure_impl(mt::MultiVT,model::T,v,t,x) where T<: HelmholtzModel
     rho = one(v)/v
     dαdrho = ForwardDiff.derivative(drho->αR_impl(mt,model,drho,t,x),inv(v))
     return rho*(one(rho)+rho*dαdrho)*RGAS*t

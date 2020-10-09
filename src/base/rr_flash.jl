@@ -162,6 +162,12 @@ end
 
 WilsonK(;pc,tc,ω) = WilsonK(pc,tc,ω)
 MollerupK(;pc,tc,ω) = MollerupK(pc,tc,ω)
+temperature(model::WilsonK,st::CriticalPoint,unit = u"K") = convert_unit(u"K",unit,model.tc)
+temperature(model::MollerupK,st::CriticalPoint,unit = u"K") = convert_unit(u"K",unit,model.tc)
+pressure(model::WilsonK,st::CriticalPoint,unit = u"Pa") = convert_unit(u"Pa",unit,model.pc)
+pressure(model::MollerupK,st::CriticalPoint,unit = u"Pa") = convert_unit(u"Pa",unit,model.pc)
+acentric_factor(model::WilsonK) = model.ω
+acentric_factor(model::MollerupK) = model.ω
 
 function WilsonK(model::ThermoModel)
     _tc = temperature(model,CriticalPoint(),u"K")

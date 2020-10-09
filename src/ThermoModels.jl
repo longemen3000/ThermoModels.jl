@@ -33,7 +33,7 @@ using LinearAlgebra: dot
 # Write your package code here.
 include("base/utils.jl")
 include("base/types.jl")
-include("base/critical.jl")
+include("base/mixing.jl")
 include("base/rr_flash.jl")
 
 #this is for using saturation models on estimation of helmholtz models
