@@ -4,20 +4,22 @@ authors = ["longemen3000 <longemen3000@gmail.com> and contributors"]
 version = "0.1.0"
 
 [deps]
+BangBang = "198e06fe-97b7-11e9-32a5-e1d131e6ad66"
 DiffResults = "163ba53b-c6d8-5494-b064-1a9d43ac40c5"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
+NLSolversBase = "d41bc354-129a-5804-8e4c-c37616107c6c"
+Optim = "429524aa-4258-5aef-a3af-852621145aeb"
 Roots = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 ThermoState = "e7b6519d-fdf7-4a33-b544-2b37a9c1234a"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [compat]
-
-StaticArrays = "0.12"
+DiffResults = "1.0"
 ForwardDiff = "0.10"
 Roots = "1.0"
-DiffResults = "1.0"
+StaticArrays = "0.12"
 ThermoState = "0.3.1 - 0.4.0"
 Unitful = "0.15 - 1.4.1"
 julia = "1.5"

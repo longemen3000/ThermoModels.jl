@@ -2,7 +2,7 @@
 
 #from PC-SAFT paper https://doi.org/10.1021/ie0003887
 function fugacity_coeff_impl(mt::MultiVT,model::HelmholtzModel,v,t,x)
-    Z = compresibility_factor_impl(mt,model,v,t,x)
+    Z = compressibility_factor_impl(mt,model,v,t,x)
     ar = z -> αR_impl(mt,model,one(v)/v,t,z)
     dadx = ForwardDiff.gradient(ar,x)
     sumdadx = dot(x,dadx)
@@ -11,50 +11,257 @@ function fugacity_coeff_impl(mt::MultiVT,model::HelmholtzModel,v,t,x)
     return map(xi->xi+c0,dadx)
 end
 
-function fugacity_coeff_impl(mt::SingleVT,model::HelmholtzModel,v,t)
-    rho = one(v)/v
-    ar(_rho) = αR_impl(mt,model,_rho,t)
-    (ar,dadrho) = f_dfdx(ar,rho)
-    p = rho*(one(rho)+rho*dadrho)*RGAS*t
-    Z = p*v/(RGAS*t)
-    return ar + (Z-1) - log(Z)
-end
 
-function flash_impl(mt::MultiPT,model,p,t,z0)
-    function v_solver(p0,t0,x0,v0=nothing,pts=7) 
-        return volume_solver(QuickStates.ptx(),volume_solver_type(model),model,p0,t0,x0,v0,no_pts=pts)
+function flash_impl(mt::MultiPT,model,p,t,z0,threaded=true)
+    _0 = zero(p*t*first(z0))
+    _1 = one(_0)
+    logϕ0 = similar(z0)
+    if threaded
+        res_z0 = Threads.@spawn create_logϕ!!($model,logϕ0,$p,$t,z0)
     end
-    _vtx = QuickStates.vtx()      
     kmodel = WilsonK(model)
-    k = kvalues_impl(mt,kmodel,p,t)
-    (vl,vg) = v_solver(p,t,z0)
-    g_0 = flash_eval(k,z0,0.0)
-    g_1 = flash_eval(k,z0,1.0)
+    k = kvalues_impl(mt,kmodel,p,t,z0)
+    g_0 = flash_eval(k,z0,_0)
+    g_1 = flash_eval(k,z0,_1)
     if g_0 <= 0  #bubble point assumption
-
-        xil = z0
-        xiv = flash_vapor(k,z0,0.0)
+        println("bubble point")
+        β = _0
+        β0 = _0
+        xil = copy(z0)
+        xiv = flash_vapor(k,z0,_0)
     elseif g_1 >= 0 #dew point assumption
-        xil = flash_liquid(k,z0,1.0)
-        xiv = z0
+        println("dew point")
+        β = _1
+        β0 = _1
+        xil = flash_liquid(k,z0,_1)
+        xiv = copy(z0)
     else #two phase assumption
+        println("flash point")
         β = flash_vfrac(RR(),k,z0)
-        xil = flash_liquid(k,z,β)
-        xiv = flash_vapor(k,z,β)
+        xil = flash_liquid(k,z0,β)
+        xiv = flash_vapor(k,z0,β)
     end
-    println(xil)
-    println(xiv)
-
+    logϕl = similar(xil)
+    logϕv = similar(xiv)
     xil = normalizefrac!!(xil)
     xiv = normalizefrac!!(xiv)
-    _vl = Threads.@spawn v_solver(p,t,xil)
-    _vv = Threads.@spawn v_solver(p,t,xiv)
-    vl = first(fetch(_vl))
-    vv = last(fetch(_vv))
-    @show logϕl = fugacity_coeff_impl(_vtx,model,vl,t,xil)
-    @show logϕv = fugacity_coeff_impl(_vtx,model,vv,t,xiv)
+    if threaded
+        res_l = Threads.@spawn update_logϕ!!($model,logϕl,$p,$t,xil,nothing,:liquid)
+        res_v = Threads.@spawn update_logϕ!!($model,logϕv,$p,$t,xiv,nothing,:vapor)
+         vl,logϕl = fetch(res_l)
+         vv,logϕv = fetch(res_v)
+     else
+         vl,logϕl = update_logϕ!!(model,logϕl,p,t,xil,nothing,:liquid)
+         vv,logϕv = update_logϕ!!(model,logϕv,p,t,xiv,nothing,:vapor)
+     end
     lnk = logϕl - logϕv
-    k .= exp.(lnk)
-    β = flash_vfrac(RR(),k,z0)
+    @! k .= exp.(lnk)
+
+    for i = 1:5
+        res = refine_k!!(model,p,t,z0,xil,xiv,vl,vv,k,logϕl,logϕv,lnk,threaded)
+        xil,xiv,vl,vv,k,logϕl,logϕv,lnk,β = res
+        if !(_0 <= β <= _1)
+            β = β0
+            break
+        end
+    end
+    #if the process was threaded, the value is fetched here
+    if !threaded
+        vz0,logϕ0 = create_logϕ!!(model,logϕ0,p,t,z0)
+    else
+        vz0,logϕ0 = fetch(res_z0)
+    end
+
+    tpdl = flash_tpd(xil, logϕl,z0,logϕ0)
+    tpdv = flash_tpd(xiv, logϕv,z0,logϕ0)
+    ΔG = (1 - β) * tpdl + β * tpdv
+    if all(>(0),(ΔG,tpdv,tpdl))
+        stable_phase = true # more detailed stability phase analisis
+    else
+        stable_phase = false #proceed to optim
+        vle_res = VLEResults(
+            model = model
+            ,vl = vl #liquid mol volume
+            ,vv = vv #gas mol volume
+            ,t = t #temperature
+            ,p = p #pressure
+            ,z0 = z0 #initial composition
+            ,lnϕl = logϕl #efective log fugacity coef - liquid
+            ,lnϕv = logϕv #efective log fugacity coef - gas
+            ,nl = copy(xil) #moles of liquid
+            ,nv = copy(xiv) #moles of gas
+            ,xil = xil #mol fraction of liquid
+            ,xiv = xiv) #mol fraction of gas
+            
+            fg! = generate_ptflash_objective(vle_res,threaded=threaded)
+            nv0 = zeros(length(xiv))
+            nv0 .+= xiv
+            nv0 .*= β
+        
+            optim_obj = OnceDifferentiable(only_fg!(fg!), nv0)
+            #==opts = Optim.Options(
+                                    iterations = 10,
+                                    store_trace = true,
+                                    show_trace = true)
+            ==#
+        
+            optimize(optim_obj, nv0, Optim.BFGS())
+            
+            return vle_res
+    end
+    println(stable_phase)
+    #==))
+    interres =  Dict{Symbol,Any}(:xl =>xil
+    ,:xv => xiv
+    ,:vl=> vl
+    ,:vv =>vv
+    ,:k=>k
+    ,:logϕl=> logϕl
+    ,:logϕv=> logϕv
+    ,:lnk=>lnk
+    ,:stable_phase=>stable_phase)
+    ==#
+    vle_res = VLEResults(
+    model = model
+    ,vl = vl #liquid mol volume
+    ,vv = vv #gas mol volume
+    ,t = t #temperature
+    ,p = p #pressure
+    ,z0 = z0 #initial composition
+    ,lnϕl = logϕl #efective log fugacity coef - liquid
+    ,lnϕv = logϕv #efective log fugacity coef - gas
+    ,nl = copy(xil) #moles of liquid
+    ,nv = copy(xiv) #moles of gas
+    ,xil = xil #mol fraction of liquid
+    ,xiv = xiv) #mol fraction of gas
+    
+    fg! = generate_ptflash_objective(vle_res,threaded=threaded)
+    nv0 = zeros(length(xiv))
+    nv0 .+= xiv
+    nv0 .*= β
+    #println(nv0)
+    #println(fg!(1,nothing,nv0))
+
+    optim_obj = OnceDifferentiable(only_fg!(fg!), nv0)
+    #opts = Optim.Options()
+    #==opts = Optim.Options(
+                             iterations = 10,
+                             store_trace = true,
+                             show_trace = true)
+    ==#
+
+    optimize(optim_obj, nv0, Optim.BFGS(),opts)
+    
+    return vle_res
 end
 
+
+
+function refine_k!!(model,p,t,z0,xil,xiv,vl,vv,k,logϕl,logϕv,lnk,threaded)  
+    if threaded
+       res_l = Threads.@spawn update_logϕ!!(model,logϕl,$p,$t,xil,$vl,:liquid)
+       res_v = Threads.@spawn update_logϕ!!(model,logϕv,$p,$t,xiv,$vv,:vapor)
+        vl,logϕl = fetch(res_l)
+        vv,logϕv = fetch(res_v)
+    else
+        vl,logϕl = update_logϕ!!(model,logϕl,p,t,xil,vl,:liquid)
+        vv,logϕv = update_logϕ!!(model,logϕv,p,t,xiv,vv,:vapor)
+    end
+    @! lnk .= logϕl .- logϕv
+    @! k .= exp.(lnk)
+    β = flash_vfrac(RR(),k,z0)
+    xil = flash_liquid!!(xil,k,z0,β)
+    xiv = flash_vapor!!(xiv,k,z0,β)
+    xil = normalizefrac!!(xil)
+    xiv = normalizefrac!!(xiv)
+    
+    return xil,xiv,vl,vv,k,logϕl,logϕv,lnk,β
+end
+
+#with values of p,t,x; returns a new logϕ,v
+function update_logϕ!!(model,logϕ,p,t,x,v=nothing,phase=:liquid)
+    x = normalizefrac!!(x)
+    _vtx = QuickStates.vtx()    
+    _ptx = QuickStates.ptx()   
+    _v =  v_zero(_ptx,model,p,t,x,v;phase=phase)
+    @! logϕ = fugacity_coeff_impl(_vtx,model,_v,t,x)
+    return _v,logϕ
+end
+
+function flash_tpd(xi, lnϕ,x0,lnϕ0)
+    f(xiᵢ,lnϕᵢ,x0ᵢ,lnϕ0ᵢ) = xiᵢ*(log(xiᵢ) + lnϕᵢ-log(x0ᵢ)- lnϕ0ᵢ)
+    return mapreduce(f,+,xi, lnϕ,x0,lnϕ0)
+end
+
+
+#create value of logϕ for stream composition. selects volume with the lowest gibbs energy
+function create_logϕ!!(model,logϕ,p,t,x,v=nothing)
+    x = normalizefrac!!(x)
+    _vtx = QuickStates.vtx()      
+    _ptx = QuickStates.ptx()   
+    v =  v_zero(_ptx,model,p,t,x,v)
+    @! logϕ .= fugacity_coeff_impl(_vtx,model,v,t,x)
+    return v,logϕ
+end
+
+
+function remove_minimums!!(x,minval=sqrt(eps(eltype(x))))
+    return @! x .= max.(x,minval)
+end
+
+
+Base.@kwdef mutable struct VLEResults{MODEL,S,V}
+    model::MODEL
+    vl::S #liquid mol volume
+    vv::S #gas mol volume
+    t::S #temperature
+    p::S #pressure
+    z0::V #initial composition
+    lnϕl::V #efective log fugacity coef - liquid
+    lnϕv::V#efective log fugacity coef - gas
+    nl::V #moles of liquid
+    nv::V #moles of gas
+    xil::V #mol fraction of liquid
+    xiv::V #mol fraction of gas
+end
+
+
+
+function _flash_obj(xlᵢ,xvᵢ,lnϕlᵢ,lnϕvᵢ,β)
+    _0 = zero(β)
+    l = ifelse(xlᵢ>_0,(1-β)*xlᵢ*(log(xlᵢ)+lnϕlᵢ),_0)
+    v = ifelse(xvᵢ>_0,β*xvᵢ*(log(xvᵢ)+lnϕvᵢ),_0)
+    return l+v
+end
+
+function generate_ptflash_objective(obj::VLEResults;threaded = true)
+    #TODO: implement threading
+    function flash_objective!(F, G, nv)
+        β = sum(nv)
+        obj.nv = nv
+        obj.nl = obj.z0-nv
+        obj.nl = remove_minimums!!(obj.nl)
+        obj.nv = remove_minimums!!(obj.nv)
+        obj.xil = normalizefrac!!(obj.nl)
+        obj.xiv = normalizefrac!!(obj.nv)
+        obj.vl ,obj.lnϕl = update_logϕ!!(obj.model,obj.lnϕl,obj.p,obj.t,obj.xil,obj.vl,:liquid)
+        obj.vv ,obj.lnϕv = update_logϕ!!(obj.model,obj.lnϕv,obj.p,obj.t,obj.xiv,obj.vv,:gas)
+    
+        if !(G === nothing)
+            G .= zero(eltype(G))
+            G .+= obj.lnϕv .+ log.(obj.xiv)   .- obj.lnϕl .- log.(obj.xil) 
+        end
+        if !(F === nothing)
+            fobjective = (xlᵢ,xvᵢ,lnϕlᵢ,lnϕvᵢ)->_flash_obj(xlᵢ,xvᵢ,lnϕlᵢ,lnϕvᵢ,β) 
+            F = mapreduce(fobjective,+,obj.xil,obj.xiv,obj.lnϕl,obj.lnϕv)
+            return F
+        end
+    end
+    return flash_objective!
+end
+
+#v = xiv*β
+#l = z0 - v
+
+#dfugv = I/β - 1/vt + dlnfugv/vt
+#dfugl = I/(1-β) - 1/lt + dlnfugl/lt

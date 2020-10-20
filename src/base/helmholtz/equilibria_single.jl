@@ -1,84 +1,23 @@
 #volume_solver(model::HelmholtzModel,args...;kwargs...) = volume_solver(model_type(model),volume_solver_type(model),model,args...;kwargs...)
 
-function volume_solver(
-    mt::SinglePT,
-    method::VolumeBisection,
-    model::HelmholtzModel,
-    p,
-    t,
-    v0 = nothing;
-    no_pts = 7)
 
-    _p(z) = pressure_impl(QuickStates.vt(),model, z, t)
-    fp(z) = _p(z) - p
-    dfp(z) = ForwardDiff.derivative(fp, z)
-    if isnothing(v0)
-        min_v = only(covolumes(model))
-        max_v = 40 * t / p #approx 5 times ideal gas
-    #this is to be sure that (min_v,max_v) is a bracketing interval
-        while fp(max_v) > 0
-            max_v *= 2
-            (max_v > typemax(max_v)/8) && break
-        end
-        while fp(min_v) < 0
-            min_v *= 0.5
-            (min_v < sqrt(eps((max_v)))) && break
-        end
-        vv = find_zeros(fp, min_v, max_v, no_pts = no_pts)
-        return (first(vv),last(vv))
-    else
-        try
-            vv =  Roots.find_zero(fp, v0)
-            return (vv,vv)
-        catch
-            return volume_solver(mt,method,model, p, t; no_pts = no_pts)
-        end
-    end
+
+
+function fugacity_coeff_impl(mt::SingleVT,model::HelmholtzModel,v,t)
+    rho = one(v)/v
+    ar(_rho) = αR_impl(mt,model,_rho,t)
+    (ar,dadrho) = f_dfdx(ar,rho)
+    p = rho*(one(rho)+rho*dadrho)*RGAS*t
+    Z = p*v/(RGAS*t)
+    return ar + (Z-1) - log(Z)
 end
-
-function volume_solver(
-    mt::MultiPT,
-    method::VolumeBisection,
-    model::HelmholtzModel,
-    p,
-    t,
-    x,
-    v0 = nothing;
-    no_pts = 7)
-    _p(z) = pressure_impl(QuickStates.vtx(),model, z, t, x)
-    fp(z) = _p(z) - p
-    dfp(z) = ForwardDiff.derivative(fp, z)
-    if isnothing(v0)
-        min_v = dot(covolumes(model),x)
-        max_v = 40 * t / p #approx 5 times ideal gas
-    #this is to be sure that (min_v,max_v) is a bracketing interval
-        while fp(max_v) > 0
-            max_v *= 2
-            (max_v > typemax(max_v)/8) && break
-        end
-        while fp(min_v) < 0
-            min_v *= 0.5
-            (min_v < sqrt(eps((max_v)))) && break
-        end
-        vv = find_zeros(fp, min_v, max_v, no_pts = no_pts)
-        return (first(vv),last(vv))
-    else
-        try
-            vv =  find_zero(fp, v0)
-            return (vv,vv)
-        catch
-            return volume_solver(mt,method,model, p, t,x; no_pts = no_pts)
-        end
-    end
-end
-
 
 function flash_impl(mt::SingleSatP,model::HelmholtzModel, _p)
-
+    _pt = QuickStates.pt()
     p = float(normalize_units(_p))
     TTT = typeof(p)
-    function v_solver(p0,t0,v0=nothing,pts=7) 
-        return volume_solver(QuickStates.pt(),volume_solver_type(model),model,p0,t0,v0,no_pts=pts)
+    function v_solver(p0,t0,v0=nothing) 
+        return volume_solver(QuickStates.pt(),volume_solver_type(model),model,p0,t0,v0)
     end
     if (Pc = pressure(model,CriticalPoint())) ≈ p
         vc = mol_volume(model,CriticalPoint())
@@ -88,9 +27,9 @@ function flash_impl(mt::SingleSatP,model::HelmholtzModel, _p)
         throw(error("the phase is supercritical at pressure = $p Pa"))
     end
     Tc = temperature(model,CriticalPoint())
-    model_pred = SingleSatPredictor(model)
-    t_pred = temperature_impl(mt,model_pred,p)
-    vv = v_solver(p,t_pred,nothing,21)
+    model_pred = single_sat_aprox(model)
+    t_pred = temperature_impl(mt,model_pred,p) #prediction temperature
+    vv = v_zeros(_pt,volume_solver_type(model),model,p,t_pred)
     if length(vv) <= 1
         throw(error("the phase is stable at pressure = $p Pa"))
     elseif length(vv) >= 2
@@ -108,10 +47,11 @@ function flash_impl(mt::SingleSatP,model::HelmholtzModel, _p)
                 v2old = v2
             end
             A = z -> _A(z, Tx)
-            _v1 = Threads.@spawn v_solver($p, $Tx, 0.9 * $v1)::Tuple{TTT,TTT}
-            _v2 = Threads.@spawn v_solver($p, $Tx, 1.1 * $v2)::Tuple{TTT,TTT}
-            v1 = first(fetch(_v1))
-            v2 = last(fetch(_v2))
+            _v1 = Threads.@spawn v_zero($_pt,model,$p,$Tx,0.95*$v1;phase=:liquid)
+            _v2 = Threads.@spawn v_zero($_pt,model,$p,$Tx,1.05*$v2;phase=:gas)
+            v1 = fetch(_v1)
+            v2 = fetch(_v2)
+
             if abs(v1 - v1old) / v1 < 1e-15 && i > 1
                 #println("v1 condition")
                 break
@@ -137,36 +77,24 @@ function flash_impl(mt::SingleSatP,model::HelmholtzModel, _p)
 end
 
 function flash_impl(mt::SingleSatT,model::HelmholtzModel, _t)
+    _pt = QuickStates.pt()
     t = float(normalize_units(_t))
     tc = ThermoState.temperature(model,CriticalPoint())
-    function v_solver(p0,t0,v0=nothing,pts=7) 
-        return volume_solver(QuickStates.pt(),volume_solver_type(model),model,p0,t0,v0,no_pts=pts)
-    end
     if tc ≈ t
         return state(mol_v=mol_volume(model,CriticalPoint()),t=tc)
     elseif t > tc
         throw(error("the phase is supercritical at temperature = $T K"))
     end
-    model_pred = SingleSatPredictor(model)
+    model_pred = single_sat_aprox(model)
     p_pred = pressure_impl(mt,model_pred,t)
     p = p_pred
     _p(z) = pressure_impl(QuickStates.vt(),model, z, t)
-    fp(z) =_p(z) - p
-    min_v = only(covolumes(model))
-    max_v = 40 * t / p_pred #approx 5 times ideal gas
-    #this is to be sure that (min_v,max_v) is a bracketing interval
-    while fp(max_v) > 0
-        max_v *= 2
-    end
-    while fp(min_v) < 0
-        min_v *= 0.5
-    end
-    vv = Roots.find_zeros(fp, min_v, max_v, no_pts = 21)
-    if vv[begin] ≈ vv[end]
+    vv = v_zeros(_pt,volume_solver_type(model),model,p_pred,t)
+    if first(vv) ≈ last(vv)
         throw(error("the phase is stable at temperature = $T K"))
     else
-        v1 = vv[begin]
-        v2 = vv[end]
+        v1 = first(vv)
+        v2 = last(vv)
         p1 = _p(v1)
         p2 = _p(v2)
         px = p_pred
@@ -178,11 +106,12 @@ function flash_impl(mt::SingleSatT,model::HelmholtzModel, _t)
                 v1old = v1
                 v2old = v2
             end
-            _v1 = Threads.@spawn v_solver($px, $t, 0.9 * $v1)
-            _v2 = Threads.@spawn v_solver($px, $t, 1.1 * $v2)
+            
+            _v1 = Threads.@spawn v_zero($_pt,model,$px,$t,0.9*v1;phase=:liquid)
+            _v2 = Threads.@spawn v_zero($_pt,model,$px,$t,1.05*v2;phase=:gas)
 
-            v1 = first(fetch(_v1))
-            v2 = last(fetch(_v2))
+            v1 = fetch(_v1)
+            v2 = fetch(_v2)
             if abs(v1 - v1old) / v1 < 1e-15 && i > 1
                 #println("v1 condition")
                 break

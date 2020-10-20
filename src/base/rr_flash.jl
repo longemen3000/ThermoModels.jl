@@ -146,6 +146,16 @@ function flash_liquid(k,z,β)
     return map(f,k,z)
 end
 
+function flash_vapor!!(res,k,z,β)
+    _1 = one(eltype(k)) 
+    @! res .=  k .* z ./ (_1 .+ β .*(k .-_1))
+end
+
+function flash_liquid!!(res,k,z,β)
+    _1 = one(eltype(k)) 
+    @! res .= z ./ (_1 .+ β .*(k .-_1))
+end
+
 
 
 struct WilsonK{T} <: ThermoModel 
@@ -189,23 +199,29 @@ function kvalues(mt::MultiPT,model::WilsonK,st::ThermodynamicState)
     return kvalues_impl(mt,model,p,t)
 end
 
-function kvalues_impl(mt::MultiPT,model::WilsonK,p,t)
+function kvalues_impl(mt::MultiPT,model::WilsonK,p,t,x)
     pc =model.pc
     tc = model.tc
     ω = model.ω
-    return exp.(log.(pc./p).+5.373 .*(1.0 .+ ω).*(1.0 .-tc./t))
+    k0 = copy(x)
+    k0-= k0
+    k0 += exp.(log.(pc./p).+5.373 .*(1.0 .+ ω).*(1.0 .-tc./t)) 
 end
 
 function kvalues(mt::MultiPT,model::MollerupK,st::ThermodynamicState)
     p = pressure(FromState(),st)
     t = temperature(FromState(),st)
-    return kvalues_impl(mt,model,p,t)
+    x = mol_fraction(FromState(),st)
+    return kvalues_impl(mt,model,p,t,x)
 end
 
-function kvalues_impl(mt::MultiPT,model::MollerupK,p,t)
+function kvalues_impl(mt::MultiPT,model::MollerupK,p,t,x)
     pc = pressure(model,ThermoState.CriticalPoint())
     tc = temperature(model,ThermoState.CriticalPoint())
     ω = acentric_factor(model)
-    return  (pc ./ p) .* exp.(5.42 .* (1.0 .- (tc ./ t)))
+    k0 = copy(x)
+    k0 -= k0
+    k0 +=   (pc ./ p) .* exp.(5.42 .* (1.0 .- (tc ./ t)))
 end
 
+    

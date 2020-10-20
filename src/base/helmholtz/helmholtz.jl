@@ -68,12 +68,12 @@ function pressure_impl(mt::MultiVT,model::T,v,t,x) where T<: HelmholtzModel
     return rho*(one(rho)+rho*dαdrho)*RGAS*t
 end
 
-function compresibility_factor_impl(mt::SingleVT,model::HelmholtzModel,v,t)
+function compressibility_factor_impl(mt::SingleVT,model::HelmholtzModel,v,t)
     p = pressure_impl(mt,model,v,t)
     return p*v/(RGAS*t)
 end
 
-function compresibility_factor_impl(mt::MultiVT,model::HelmholtzModel,v,t,x)
+function compressibility_factor_impl(mt::MultiVT,model::HelmholtzModel,v,t,x)
     p = pressure_impl(mt,model,v,t,x)
     return p*v/(RGAS*t)
 end
@@ -253,11 +253,33 @@ function mol_entropy(mt::SingleVT,model::HelmholtzModel,st::ThermodynamicState,u
     return convert_unit(u"J/mol",unit,val)
 end
 
+
 function mol_entropy(mt::MultiVT,model::HelmholtzModel,st::ThermodynamicState,unit = u"J/(mol*K)")
     mw = molecular_weight(model)
     v = mol_volume(FromState(),st,u"m^3/mol",mw)
     t = temperature(FromState(),st,u"K")
     x = mol_fraction(FromState(),st,nothing,mw)
+    val = mol_entropy_impl(mt,model,v,t,x)
+    return convert_unit(u"J/(mol*K)",unit,val)
+end
+
+function mol_entropy(mt::SinglePT,model::HelmholtzModel,st::ThermodynamicState,unit = u"J/(mol*K)")
+    mw = molecular_weight(model)
+    p = pressure(FromState(),st)
+    t = temperature(FromState(),st)
+    phase = ThermoState.phase(FromState(),st)
+    v = v_zero(mt,model,p,t,phase=phase)
+    val =  mol_entropy_impl(mt,model,v,t)
+    return convert_unit(u"J/mol",unit,val)
+end
+
+function mol_entropy(mt::MultiPT,model::HelmholtzModel,st::ThermodynamicState,unit = u"J/(mol*K)")
+    mw = molecular_weight(model)
+    p = pressure(FromState(),st)
+    t = temperature(FromState(),st,u"K")
+    phase = ThermoState.phase(FromState(),st)
+    x = mol_fraction(FromState(),st,nothing,mw)
+    v = v_zero(mt,model,p,t,x,phase=phase)
     val = mol_entropy_impl(mt,model,v,t,x)
     return convert_unit(u"J/(mol*K)",unit,val)
 end
@@ -286,6 +308,27 @@ for mol_op in (:mol_helmholtz, :mol_gibbs, :mol_internal_energy, :mol_enthalpy)
             v = mol_volume(FromState(),st,u"m^3/mol",mw)
             t = temperature(FromState(),st)
             x = mol_fraction(FromState(),st,nothing,mw)
+            val = $mol_op_impl(mt,model,v,t,x)
+            return convert_unit(u"J/mol",unit,val)
+        end
+
+        function $mol_op(mt::SinglePT,model::HelmholtzModel,st::ThermodynamicState,unit = u"J/mol")
+            mw = molecular_weight(model)
+            p = pressure(FromState(),st)
+            t = temperature(FromState(),st)
+            phase = ThermoState.phase(FromState(),st)
+            v = v_zero(mt,model,p,t,phase=phase)           
+            val = $mol_op_impl(mt,model,v,t)
+            return convert_unit(u"J/mol",unit,val)
+        end
+
+        function $mol_op(mt::MultiPT,model::HelmholtzModel,st::ThermodynamicState,unit = u"J/mol")
+            mw = molecular_weight(model)
+            p = pressure(FromState(),st)
+            t = temperature(FromState(),st)
+            x = mol_fraction(FromState(),st,nothing,mw)
+            phase = ThermoState.phase(FromState(),st)
+            v = v_zero(mt,model,p,t,x,phase=phase)
             val = $mol_op_impl(mt,model,v,t,x)
             return convert_unit(u"J/mol",unit,val)
         end
@@ -322,6 +365,57 @@ function total_entropy(model::HelmholtzModel,st::ThermodynamicState,unit=u"J/(kg
     return convert_unit(u"J/(kg*K)",unit,val)
 end 
 
+function mol_volume(model::HelmholtzModel,st::ThermodynamicState,unit = u"m^3/mol")
+    return mol_volume(state_type(st),model,st,unit)
+end
+
+function mol_volume(mt::SinglePT,model::HelmholtzModel,st::ThermodynamicState,unit = u"m^3/mol")
+    mw = molecular_weight(model)
+    p = pressure(FromState(),st)
+    t = temperature(FromState(),st)
+    phase = ThermoState.phase(FromState(),st)
+    v = v_zero(mt,model,p,t,phase=phase)           
+    return convert_unit(u"m^3/mol",unit,v)
+end
+
+
+function mol_volume(mt::MultiPT,model::HelmholtzModel,st::ThermodynamicState,unit = u"m^3/mol")
+    mw = molecular_weight(model)
+    p = pressure(FromState(),st)
+    t = temperature(FromState(),st)
+    x = mol_fraction(FromState(),st,nothing,mw)
+    phase = ThermoState.phase(FromState(),st)
+    v = v_zero(mt,model,p,t,x,phase=phase)           
+    return convert_unit(u"m^3/mol",unit,v)
+end
+
+
+function mol_density(model::HelmholtzModel,st::ThermodynamicState,unit =u"mol/(m^3)")
+    v = mol_volume(model,st)
+    res =  one(v)/v
+    return convert_unit(u"mol/(m^3)",unit,res)
+end
+
+function total_volume(model::HelmholtzModel,st::ThermodynamicState,unit = u"m^3")
+    mw = molecular_weight(model)
+    v  = mol_volume(model,st)
+    n = moles(FromState(),st,u"mol",mw)
+    res =  v*n
+    return convert_unit(u"m^3",unit,res)
+end
+
+function mass_volume(model::HelmholtzModel,st::ThermodynamicState,unit = u"m^3/kg")
+    mw = molecular_weight(model)
+    v  = mol_volume(model,st)
+    val = v/molar_mass(FromState(),st,u"kg/mol",mw)
+    return convert_unit(u"m^3/kg",unit,val)
+end
+
+function mass_density(model::HelmholtzModel,st::ThermodynamicState,unit =u"kg/(m^3)")
+    v  = mass_volume(model,st)
+    res =  one(v)/v
+    return convert_unit(u"kg/(m^3)",unit,res)
+end
 
 
 

@@ -2258,14 +2258,14 @@ _gerg_asymetric_mix_rule(xi, xj, b) = b * (xi + xj) / (xi * b^2 + xj)
 function mol_volume(mixmodel::MixRule{GERG2008{TT},X},::CriticalPoint,unit=u"m^3/mol") where {TT<:MaterialCompounds,X}
     x = mol_fraction(mixmodel) 
     model = thermomodel(mixmodel)
-    vc = (mixing_rule_asymetric(
-        cubic_mean_rule,
+    vc = mixing_rule_asymetric(
+        (a,b) -> ((cbrt(a) + cbrt(b))*0.5)^3,
         _gerg_asymetric_mix_rule,
         x,
         model.criticalVolume,
         model.gamma_v,
         model.beta_v,
-    ))
+    )
     return convert_unit(u"m^3/mol",unit,vc)
 end 
 
@@ -2297,7 +2297,7 @@ function temperature(mixmodel::MixRule{GERG2008{TT},X},::CriticalPoint,unit=u"K"
     x = mol_fraction(mixmodel) 
     model = thermomodel(mixmodel)
     Tcmix = mixing_rule_asymetric(
-        geometric_mean_rule,
+        (a,b)->sqrt(a * b),
         _gerg_asymetric_mix_rule,
         x,
         model.criticalTemperature,
@@ -2506,19 +2506,34 @@ covolumes(model::GERG2008{SingleComponent}) =
     0.0778 * only(model.criticalTemperature) * RGAS/ only(model.criticalPressure)
 
 #critical, multi component:
-mol_density(model::GERG2008{TT where TT <:MaterialCompounds},::CriticalPoint,unit=u"mol/(m^3)") = convert_unit.(u"mol/L",unit,model.criticalDensity)
-pressure(model::GERG2008{TT where TT <:MaterialCompounds},::CriticalPoint,unit=u"Pa") = convert_unit.(u"Pa",unit,model.criticalPressure)
+
+function mol_density(model::GERG2008{TT},::CriticalPoint,unit=u"mol/(m^3)")  where TT <:MaterialCompounds
+    return convert_unit.(u"mol/L",unit,model.criticalDensity)
+end
+
+function pressure(model::GERG2008{TT},::CriticalPoint,unit=u"Pa")  where TT <:MaterialCompounds
+    return convert_unit.(u"Pa",unit,model.criticalPressure)
+end
 
 function temperature(model::GERG2008{TT},::CriticalPoint,unit=u"K")  where TT <:MaterialCompounds
     return convert_unit.(u"K",unit,model.criticalTemperature)
 end
-    mol_volume(model::GERG2008{TT where TT <:MaterialCompounds},::CriticalPoint,unit=u"m^3/mol") = convert_unit.(u"m^3/mol",unit,model.criticalVolume)
-acentric_factor(model::GERG2008{TT where TT <:MaterialCompounds}) = model.acentric_factor
 
-covolumes(model::GERG2008{TT where TT <:MaterialCompounds}) =
-    0.0778 .* model.criticalTemperature .* RGAS ./ model.criticalPressure
+function mol_volume(model::GERG2008{TT},::CriticalPoint,unit=u"m^3/mol")  where TT <:MaterialCompounds
+    return convert_unit.(u"m^3/mol",unit,model.criticalVolume)
+end
 
-SingleSatPredictor(model::GERG2008{SingleComponent}) = LeeKesler(model)
+function acentric_factor(model::GERG2008{TT})  where TT <:MaterialCompounds
+    return model.acentric_factor
+end
+
+function covolumes(model::GERG2008{TT})  where TT <:MaterialCompounds
+    return 0.0778 .* model.criticalTemperature .* RGAS ./ model.criticalPressure
+end
+
+    
+
+single_sat_aprox(model::GERG2008{SingleComponent}) = LeeKesler(model)
 volume_solver_type(model::GERG2008) = VolumeBisection()
 
 function Base.show(io::IO, sp::GERG2008{TT}) where TT <:MaterialCompounds
@@ -2535,3 +2550,5 @@ function Base.show(io::IO, sp::GERG2008{SingleComponent})
     print(io,"GERG008 helmholtz model for ",compound)
 end
 
+
+ 
