@@ -24,19 +24,19 @@ function flash_impl(mt::MultiPT,model,p,t,z0,threaded=true)
     g_0 = flash_eval(k,z0,_0)
     g_1 = flash_eval(k,z0,_1)
     if g_0 <= 0  #bubble point assumption
-        println("bubble point")
+        #println("bubble point")
         β = _0
         β0 = _0
         xil = copy(z0)
         xiv = flash_vapor(k,z0,_0)
     elseif g_1 >= 0 #dew point assumption
-        println("dew point")
+        #println("dew point")
         β = _1
         β0 = _1
         xil = flash_liquid(k,z0,_1)
         xiv = copy(z0)
     else #two phase assumption
-        println("flash point")
+        #println("flash point")
         β = flash_vfrac(RR(),k,z0)
         xil = flash_liquid(k,z0,β)
         xiv = flash_vapor(k,z0,β)
@@ -83,8 +83,10 @@ function flash_impl(mt::MultiPT,model,p,t,z0,threaded=true)
             model = model
             ,vl = vl #liquid mol volume
             ,vv = vv #gas mol volume
-            ,t = t #temperature
-            ,p = p #pressure
+            ,tv = t #temperature
+            ,pv = p #pressure
+            ,tl = t #temperature
+            ,pl = p #pressure
             ,z0 = z0 #initial composition
             ,lnϕl = logϕl #efective log fugacity coef - liquid
             ,lnϕv = logϕv #efective log fugacity coef - gas
@@ -107,9 +109,13 @@ function flash_impl(mt::MultiPT,model,p,t,z0,threaded=true)
         
             optimize(optim_obj, nv0, Optim.BFGS())
             
-            return vle_res
+            return vtn_states(vle_res)
     end
-    println(stable_phase)
+    #return original phase, for now an
+    #todo: identify phase
+    return state(t=t,v=vz0,xn = z0)
+    #"return error("phase is not stable")
+    #println(stable_phase)
     #==))
     interres =  Dict{Symbol,Any}(:xl =>xil
     ,:xv => xiv
@@ -123,11 +129,13 @@ function flash_impl(mt::MultiPT,model,p,t,z0,threaded=true)
     ==#
     vle_res = VLEResults(
     model = model
+    ,z0 = z0 #initial composition
     ,vl = vl #liquid mol volume
     ,vv = vv #gas mol volume
-    ,t = t #temperature
-    ,p = p #pressure
-    ,z0 = z0 #initial composition
+    ,tv = t #temperature
+    ,pv = p #pressure
+    ,tl = t #temperature
+    ,pl = p #pressure
     ,lnϕl = logϕl #efective log fugacity coef - liquid
     ,lnϕv = logϕv #efective log fugacity coef - gas
     ,nl = copy(xil) #moles of liquid
@@ -143,7 +151,7 @@ function flash_impl(mt::MultiPT,model,p,t,z0,threaded=true)
     #println(fg!(1,nothing,nv0))
 
     optim_obj = OnceDifferentiable(only_fg!(fg!), nv0)
-    #opts = Optim.Options()
+    opts = Optim.Options()
     #==opts = Optim.Options(
                              iterations = 10,
                              store_trace = true,
@@ -152,7 +160,7 @@ function flash_impl(mt::MultiPT,model,p,t,z0,threaded=true)
 
     optimize(optim_obj, nv0, Optim.BFGS(),opts)
     
-    return vle_res
+    return vtn_states(vle_res)
 end
 
 
@@ -214,8 +222,10 @@ Base.@kwdef mutable struct VLEResults{MODEL,S,V}
     model::MODEL
     vl::S #liquid mol volume
     vv::S #gas mol volume
-    t::S #temperature
-    p::S #pressure
+    tv::S #temperature, gas
+    pv::S #pressure, gas
+    tl::S #temperature,liquid
+    pl::S #pressure,liquid
     z0::V #initial composition
     lnϕl::V #efective log fugacity coef - liquid
     lnϕv::V#efective log fugacity coef - gas
@@ -225,7 +235,17 @@ Base.@kwdef mutable struct VLEResults{MODEL,S,V}
     xiv::V #mol fraction of gas
 end
 
+function vtx_states(obj::VLEResults)
+    stᵥ = state(mol_v=obj.vv,t=obj.tv,xn=obj.xiv,phase=:gas)
+    stₗ = state(mol_v=obj.vl,t=obj.tl,xn=obj.xil,phase=:liquid)
+    return (stₗ,stᵥ)
+end
 
+function vtn_states(obj::VLEResults)
+    stᵥ = state(mol_v=obj.vv,t=obj.tv,n=obj.nv,phase=:gas)
+    stₗ = state(mol_v=obj.vl,t=obj.tl,n=obj.nl,phase=:liquid)
+    return (stₗ,stᵥ)
+end
 
 function _flash_obj(xlᵢ,xvᵢ,lnϕlᵢ,lnϕvᵢ,β)
     _0 = zero(β)
@@ -237,6 +257,8 @@ end
 function generate_ptflash_objective(obj::VLEResults;threaded = true)
     #TODO: implement threading
     function flash_objective!(F, G, nv)
+        t = obj.tv
+        p = obj.pv
         β = sum(nv)
         obj.nv = nv
         obj.nl = obj.z0-nv
@@ -244,8 +266,8 @@ function generate_ptflash_objective(obj::VLEResults;threaded = true)
         obj.nv = remove_minimums!!(obj.nv)
         obj.xil = normalizefrac!!(obj.nl)
         obj.xiv = normalizefrac!!(obj.nv)
-        obj.vl ,obj.lnϕl = update_logϕ!!(obj.model,obj.lnϕl,obj.p,obj.t,obj.xil,obj.vl,:liquid)
-        obj.vv ,obj.lnϕv = update_logϕ!!(obj.model,obj.lnϕv,obj.p,obj.t,obj.xiv,obj.vv,:gas)
+        obj.vl ,obj.lnϕl = update_logϕ!!(obj.model,obj.lnϕl,p,t,obj.xil,obj.vl,:liquid)
+        obj.vv ,obj.lnϕv = update_logϕ!!(obj.model,obj.lnϕv,p,t,obj.xiv,obj.vv,:gas)
     
         if !(G === nothing)
             G .= zero(eltype(G))

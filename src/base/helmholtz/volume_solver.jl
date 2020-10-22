@@ -116,36 +116,12 @@ function v_zero(mt::SinglePT,model::HelmholtzModel,p,t,v0=nothing;phase=:unspeci
         end
     else #return the phase with least gibbs energy
         if isnothing(v0)
-            vs = v_zeros(mt,volume_solver_type(model),model,p,t)
-            v1 = first(vs)
-            v2 = last(vs)
-            (v1 == v2) && return v1
-            g1 = _g(v1)
-            g2 = _g(v2)
-            if g1 < g2
-                return v1
-            elseif g2 < g1
-                return v2
-            else #different volumes, but equal energies, equilibria conditions
-                return v2
-            end
+            return v_zero_general(mt,model,p,t)
         else
             try
                 return roots_fzero(_p,p,t,v0)
             catch
-                vs = v_zeros(mt,volume_solver_type(model),model,p,t)
-                v1 = first(vs)
-                v2 = last(vs)
-                (v1 == v2) && return v1
-                g1 = _g(v1)
-                g2 = _g(v2)
-                if g1 < g2
-                    return v1
-                elseif g2 < g1
-                    return v2
-                else #different volumes, but equal energies, equilibria conditions
-                    return v2
-                end
+                return v_zero_general(mt,model,p,t)
             end
         end
     end
@@ -211,36 +187,13 @@ function v_zero(mt::MultiPT,model::HelmholtzModel,p,t,x,v0=nothing;phase=:unspec
         end
     else #return the phase with least gibbs energy
         if isnothing(v0)
-            vs = v_zeros(mt,volume_solver_type(model),model,p,t,x)
-            v1 = first(vs)
-            v2 = last(vs)
-            (v1 == v2) && return v1
-            g1 = _g(v1)
-            g2 = _g(v2)
-            if g1 < g2
-                return v1
-            elseif g2 < g1
-                return v2
-            else #different volumes, but equal energies, equilibria conditions
-                return v2
-            end
+            return v_zero_general(mt,model,p,t,x)
+
         else
             try
                 return roots_fzero(_p,p,t,v0)
             catch
-                vs = v_zeros(mt,volume_solver_type(model),model,p,t,x)
-                v1 = first(vs)
-                v2 = last(vs)
-                (v1 == v2) && return v1
-                g1 = _g(v1)
-                g2 = _g(v2)
-                if g1 < g2
-                    return v1
-                elseif g2 < g1
-                    return v2
-                else #different volumes, but equal energies, equilibria conditions
-                    return v2
-                end
+                return v_zero_general(mt,model,p,t,x)
             end
         end
     end
@@ -273,6 +226,57 @@ function v_zeros(::MultiPT,
     #v1 =  Roots.find_zero(fp,first(vv))
     #v2 = Roots.find_zero(fp,last(vv))
     return (v1,v2)
+end
+
+function v_zero_general(mt::SinglePT,model::HelmholtzModel,p,t)
+    _vt = QuickStates.vt()
+    _g(_v) = mol_gibbs_impl(_vt,model,_v,t)
+    _p(_v) = pressure_impl(_vt,model,_v,t)  
+    vs = v_zeros(mt,volume_solver_type(model),model,p,t)
+
+    v1 = first(vs)
+    v2 = last(vs)
+    (v1 == v2) && return v1
+    vg = gas_fzero(_p,p,t)
+    if !(v2 ≈ vg) | !(_p(vg) ≈ p) #gas_fzero doesnt find gas phase
+        return v1
+    end
+    g1 = _g(v1)
+    g2 = _g(v2)
+    if g1 < g2
+        return v1
+    elseif g2 < g1
+        return v2
+    else #different volumes, but equal energies, equilibria conditions
+        return v2
+    end
+end
+
+#finds the root with lowest gibbs energy, corrected for gas
+function v_zero_general(mt::MultiPT,model::HelmholtzModel,p,t,x)
+    _vt = QuickStates.vtx()
+    _g(_v) = mol_gibbs_impl(_vt,model,_v,t,x)
+    _p(_v) = pressure_impl(_vt,model,_v,t,x)  
+    vs = v_zeros(mt,volume_solver_type(model),model,p,t,x)
+
+    v1 = first(vs)
+    v2 = last(vs)
+    (v1 == v2) && return v1 #only root case
+    vg = gas_fzero(_p,p,t)
+    if !(_p(vg) ≈ p) #gas_fzero doesnt find gas phase
+        return v1
+    elseif v2 < vg #gas fzero found a bigger and mostly correct volume root
+    v2 = vg
+    end
+    g1 = _g(v1)
+    g2 = _g(v2)
+    if g1 < g2
+        return v1
+    elseif g2 < g1
+        return v2
+    else #different volumes, but equal energies, equilibria conditions
+        return v2
+    end
 end
 
 function roots_fzero(p,pspec,t,v)
@@ -369,4 +373,20 @@ function _gas_fzero(P,Pspec::TT,v0::TT,T::TT,relax = TT(0.9),maxevals=100, atol=
         count +=1 
     end
     return nan
+end
+
+
+struct MyType
+    a
+end
+
+function Base.show(io::IO, x::MyType)
+    compact = get(io,:compact,false)
+    a = x.a
+    if compact
+        println("My type with one element:")
+        println("a (",typeof(a),"):",a)
+    else
+        print("MyType(",a,")")
+    end
 end
