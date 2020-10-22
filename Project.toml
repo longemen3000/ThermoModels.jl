@@ -18,7 +18,6 @@ Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 [compat]
 DiffResults = "1.0"
 ForwardDiff = "0.10"
-NLSolversBase = "7.7"
 Roots = "1.0"
 StaticArrays = "0.12"
 ThermoState = "0.3.1 - 0.4.0"
