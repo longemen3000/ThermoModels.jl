@@ -16,8 +16,6 @@ import ThermoState: mass_entropy, mol_entropy, total_entropy
 import ThermoState: mass_fraction, mol_fraction
 import ThermoState: mass_number, mol_number
 import ThermoState: options, phase, quality
-import ThermoState: mol_cv, mol_cp, mass_cv,mass_cv
-import ThermoState: sound_speed
 
 using StaticArrays
 using DiffResults
