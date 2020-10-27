@@ -16,6 +16,10 @@ import ThermoState: mass_entropy, mol_entropy, total_entropy
 import ThermoState: mass_fraction, mol_fraction
 import ThermoState: mass_number, mol_number
 import ThermoState: options, phase, quality
+import ThermoState: mol_cp,mol_cv,mass_cv,mass_cp
+import ThermoState: sound_speed
+import ThermoState: molecular_weight
+
 
 using StaticArrays
 using DiffResults
@@ -26,8 +30,10 @@ using Unitful: @u_str
 import Roots
 using Roots: find_zeros
 using Roots: find_zero
+
 import NLSolversBase
 using NLSolversBase: only_fg!,OnceDifferentiable
+
 import LinearAlgebra
 using LinearAlgebra: dot
 
