@@ -19,7 +19,7 @@ abstract type SatLiquidModel <: ThermoState.ThermoModel end
 
 #catch all to build models that doesnt need automatically
 #to stop erroring
-molecular_weight(model::ThermoModel) = nothing
+
 
 
 #abstract types corresponding 
