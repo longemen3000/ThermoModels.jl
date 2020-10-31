@@ -1,85 +1,3 @@
-function volume_solver(
-    mt::SinglePT,
-    method::VolumeBisection,
-    model::HelmholtzModel,
-    p,
-    t,
-    v0 = nothing;
-    phase=:liquid)
-    no_pts = method.pts
-    _p(z) = pressure_impl(QuickStates.vt(),model, z, t)
-    fp(z) = _p(z) - p
-    dfp(z) = ForwardDiff.derivative(fp, z)
-    if isnothing(v0)
-        min_v = only(covolumes(model))
-        max_v = 40 * t / p #approx 5 times ideal gas
-    #this is to be sure that (min_v,max_v) is a bracketing interval
-        while fp(max_v) > 0
-            max_v *= 2
-            (max_v > typemax(max_v)/8) && break
-        end
-        while fp(min_v) < 0
-            min_v *= 0.5
-            (min_v < sqrt(eps((max_v)))) && break
-        end
-        vv = find_zeros(fp, min_v, max_v, no_pts = no_pts)
-        return (first(vv),last(vv))
-    else
-        try
-            if phase == :liquid
-            vv =  Roots.find_zero(fp, v0)
-            else
-                vv = gas_fzero(_p,p,v0,t)
-                if isnan(vv)
-                    println(v0)
-                    return volume_solver(mt,method,model, p, t; no_pts = no_pts)
-                end
-            end
-            return (vv,vv)
-        catch
-            return volume_solver(mt,method,model, p, t; no_pts = no_pts)
-        end
-    end
-end
-
-function volume_solver(
-    mt::MultiPT,
-    method::VolumeBisection,
-    model::HelmholtzModel,
-    p,
-    t,
-    x,
-    v0 = nothing;
-    no_pts = 7)
-    _p(z) = pressure_impl(QuickStates.vtx(),model, z, t, x)
-    fp(z) = _p(z) - p
-    dfp(z) = ForwardDiff.derivative(fp, z)
-    if isnothing(v0)
-        min_v = dot(covolumes(model),x)
-        max_v = 40 * t / p #approx 5 times ideal gas
-    #this is to be sure that (min_v,max_v) is a bracketing interval
-        while fp(max_v) > 0
-            max_v *= 2
-            (max_v > typemax(max_v)/8) && break
-        end
-        while fp(min_v) < 0
-            min_v *= 0.5
-            (min_v < sqrt(eps((max_v)))) && break
-        end
-        vv = find_zeros(fp, min_v, max_v, no_pts = no_pts)
-        return (first(vv),last(vv))
-    else
-        try
-            vv =  find_zero(fp, v0)
-            return (vv,vv)
-        catch
-            return volume_solver(mt,method,model, p, t,x; no_pts = no_pts)
-        end
-    end
-end
-
-
-
 #returns a mol volume from P and T
 function v_zero(mt::SinglePT,model::HelmholtzModel,p,t,v0=nothing;phase=:unspecified)
     _vt = QuickStates.vt()
@@ -161,27 +79,17 @@ function v_zero(mt::MultiPT,model::HelmholtzModel,p,t,x,v0=nothing;phase=:unspec
         else
             v = gas_fzero(_p,p,t,v0) 
         end
-        
-        if isnan(v)
-            #println("isnan with v=",v0,", p= ",p,", t = ",t)
-            vs = v_zeros(mt,volume_solver_type(model),model,p,t,x)
-            return last(vs)
-        else
-            return v
-        end
 
     elseif is_liquid(phase)
         if isnothing(v0)
-            vs = v_zeros(mt,volume_solver_type(model),model,p,t,x)
-            v = first(vs)
+            v = liquid_fzero(_p,p,t)
             return v
         else
             try
                 v= roots_fzero(_p,p,t,v0)
                 return v
             catch
-                vs = v_zeros(mt,volume_solver_type(model),model,p,t,x)
-                v = first(vs)
+                v = liquid_fzero(_p,p,t)
                 return v
             end
         end
@@ -232,13 +140,14 @@ function v_zero_general(mt::SinglePT,model::HelmholtzModel,p,t)
     _vt = QuickStates.vt()
     _g(_v) = mol_gibbs_impl(_vt,model,_v,t)
     _p(_v) = pressure_impl(_vt,model,_v,t)  
-    vs = v_zeros(mt,volume_solver_type(model),model,p,t)
+    #vs = v_zeros(mt,volume_solver_type(model),model,p,t)
 
-    v1 = first(vs)
-    v2 = last(vs)
-    (v1 == v2) && return v1
+    
+    v2 = liquid_fzero(_p,p,t)
+    #(v1 == v2) && return v1
     vg = gas_fzero(_p,p,t)
-    if !(v2 ≈ vg) | !(_p(vg) ≈ p) #gas_fzero doesnt find gas phase
+    v1 = vg
+    if !(_p(vg) ≈ p) #gas_fzero doesnt find gas phase
         return v1
     end
     g1 = _g(v1)
@@ -283,6 +192,10 @@ function roots_fzero(p,pspec,t,v)
     f0(x) = p(x) - pspec
     return Roots.find_zero(f0,v)
 end
+#Sucessive van der waals approximations, patent pending (lol)
+#aproximates locally the function to a van der waals
+#gas_fzero aproximates supposing gas phase (a-aproximation)
+#liquid_fzero aproximates supposing liquid phase (a-aproximation)
 
 function gas_fzero(p,Pspec,t,v0 = 40 * t / Pspec;
     relax=0.9*one(float(Pspec)),
@@ -376,17 +289,76 @@ function _gas_fzero(P,Pspec::TT,v0::TT,T::TT,relax = TT(0.9),maxevals=100, atol=
 end
 
 
-struct MyType
-    a
+
+#=
+Z = pv/rt 
+ZRT/p
+
+=#
+
+function liquid_fzero(p,Pspec,t,v0 = 0.375*RGAS*t/Pspec
+    ,relax=0.9*one(float(Pspec))
+    ,maxevals=100
+    ,atol = zero(float(Pspec))
+    ,rtol = 8*eps(one(float(Pspec))))
+    _Pspec,_v0,_t,_atol,_rtol,_relax = promote(Pspec,v0,t,atol,rtol,relax)
+    return _liquid_fzero(p,_Pspec,_v0,_t,_relax,maxevals,_atol,_rtol)
 end
 
-function Base.show(io::IO, x::MyType)
-    compact = get(io,:compact,false)
-    a = x.a
-    if compact
-        println("My type with one element:")
-        println("a (",typeof(a),"):",a)
-    else
-        print("MyType(",a,")")
+
+
+#2.2V = b
+
+function _liquid_fzero(P,Pspec::TT,v0::TT,T::TT,relax = TT(0.9),maxevals=100, atol=zero(TT), rtol=8*eps(TT)) where TT
+    _1 = one(TT)
+    v = v0
+    count = 0
+    maxcount = 10
+    converged = false
+    vmin = TT(Inf)
+    vold=TT(NaN)
+    pold = TT(NaN)
+    function f0(v) 
+        res = _1/P(v) - _1/Pspec
+        if res < 0
+           return -10*res
+        else
+           return res
+        end
     end
+
+    f00(v) =  P(v) - Pspec
+    while !converged
+        v0 = Optim.optimize(f0,eps(TT),v0,iterations=16).minimizer
+        p0  = P(v0)
+        if abs(vold-v0)/v0 < 0.001
+            break
+        end
+        b1 = abs(-RGAS*T/p0 + v0)
+        b2 = abs(-RGAS*T/Pspec + b1)
+        vold = v0
+        vmin = min(vmin,b1,b2,v0)
+        v0 = vmin
+        #@show v0
+        if count >= maxcount
+            converged = true
+        end
+
+        count +=1
+        pold = p0
+
+
+    end
+    #refine val
+    return roots_fzero(P,Pspec,T,v0)
 end
+
+#=
+p > RT/v-b
+p(v-b) > RT
+v - b > RT/P
+v + b> v > RT/P + b 
+v> v - b> RT/P
+b< v-RT/P 
+
+=#

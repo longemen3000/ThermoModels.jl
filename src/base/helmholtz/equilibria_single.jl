@@ -16,9 +16,7 @@ function flash_impl(mt::SingleSatP,model::HelmholtzModel, _p)
     _pt = QuickStates.pt()
     p = float(normalize_units(_p))
     TTT = typeof(p)
-    function v_solver(p0,t0,v0=nothing) 
-        return volume_solver(QuickStates.pt(),volume_solver_type(model),model,p0,t0,v0)
-    end
+
     if (Pc = pressure(model,CriticalPoint())) ≈ p
         vc = mol_volume(model,CriticalPoint())
         tc=temperature(model,CriticalPoint())
@@ -30,51 +28,53 @@ function flash_impl(mt::SingleSatP,model::HelmholtzModel, _p)
     model_pred = single_sat_aprox(model)
     t_pred = temperature_impl(mt,model_pred,p) #prediction temperature
     vv = v_zeros(_pt,volume_solver_type(model),model,p,t_pred)
-    if length(vv) <= 1
-        throw(error("the phase is stable at pressure = $p Pa"))
-    elseif length(vv) >= 2
-        v1 = first(vv)
-        v2 = last(vv)
-        px = p
-        _A(z, t) = mol_helmholtz_impl(QuickStates.vt(),model, z, t)
-        v1old = 0.0
-        v2old = 0.0
-        Told = -100.0
-        Tx = t_pred
-        for i = 1:20
-            if i > 1
-                v1old = v1
-                v2old = v2
-            end
-            A = z -> _A(z, Tx)
-            _v1 = Threads.@spawn v_zero($_pt,model,$p,$Tx,0.95*$v1;phase=:liquid)
-            _v2 = Threads.@spawn v_zero($_pt,model,$p,$Tx,1.05*$v2;phase=:gas)
-            v1 = fetch(_v1)
-            v2 = fetch(_v2)
 
-            if abs(v1 - v1old) / v1 < 1e-15 && i > 1
-                #println("v1 condition")
-                break
-            elseif abs(v2 - v2old) / v2 < 1e-15 && i > 1
-                #println("v2 condition")
-                break
-            end
-            
-            _px(T) = (_A(v1, T) - _A(v2, T)) / (v2 - v1) - p
-            #_px(T) = exp(_A(v1,T)-_A(v2,T)) - one(Tx)
-            Told = Tx
-            Tx = Roots.find_zero(_px, Tx)
-            if abs(Told - Tx) < 1e-10 * Tx
-                #println("P condition")
-                break
-            end
+    v1 = liquid_fzero(_p,p,t)
+    #(v1 == v2) && return v1
+    v2 = gas_fzero(_p,p,t)
+    if v1 ≈ v2
+        throw(error("cannot converge at pressure = $p Pa"))
+    else
+    px = p
+    _A(z, t) = mol_helmholtz_impl(QuickStates.vt(),model, z, t)
+    v1old = zero(TTT)
+    v2old = zero(TTT)
+    Told = TTT(-100.0)
+    Tx = t_pred
+    for i = 1:20
+        if i > 1
+            v1old = v1
+            v2old = v2
         end
+        A = z -> _A(z, Tx)
+        _v1 = Threads.@spawn v_zero($_pt,model,$p,$Tx,0.95*$v1;phase=:liquid)
+        _v2 = Threads.@spawn v_zero($_pt,model,$p,$Tx,1.05*$v2;phase=:gas)
+        v1 = fetch(_v1)
+        v2 = fetch(_v2)
 
-        phase1 = state(mol_v = v1, t=Tx ,phase=:liquid)
-        phase2 = state(mol_v = v2, t=Tx, phase=:gas)
-        return (phase1, phase2)
+        if abs(v1 - v1old) / v1 < 1e-15 && i > 1
+            #println("v1 condition")
+            break
+        elseif abs(v2 - v2old) / v2 < 1e-15 && i > 1
+            #println("v2 condition")
+            break
+        end
+        
+        _px(T) = (_A(v1, T) - _A(v2, T)) / (v2 - v1) - p
+        #_px(T) = exp(_A(v1,T)-_A(v2,T)) - one(Tx)
+        Told = Tx
+        Tx = Roots.find_zero(_px, Tx)
+        if abs(Told - Tx) < 1e-10 * Tx
+            #println("P condition")
+            break
+        end
     end
+
+    phase1 = state(mol_v = v1, t=Tx ,phase=:liquid)
+    phase2 = state(mol_v = v2, t=Tx, phase=:gas)
+    return (phase1, phase2)
 end
+
 
 function flash_impl(mt::SingleSatT,model::HelmholtzModel, _t)
     _pt = QuickStates.pt()
@@ -89,12 +89,13 @@ function flash_impl(mt::SingleSatT,model::HelmholtzModel, _t)
     p_pred = pressure_impl(mt,model_pred,t)
     p = p_pred
     _p(z) = pressure_impl(QuickStates.vt(),model, z, t)
-    vv = v_zeros(_pt,volume_solver_type(model),model,p_pred,t)
-    if first(vv) ≈ last(vv)
+    v1 = liquid_fzero(_p,p,t)
+    #(v1 == v2) && return v1
+    v2 = gas_fzero(_p,p,t)
+    if v1 ≈ v2
         throw(error("the phase is stable at temperature = $T K"))
     else
-        v1 = first(vv)
-        v2 = last(vv)
+
         p1 = _p(v1)
         p2 = _p(v2)
         px = p_pred
