@@ -23,50 +23,52 @@ function flash_impl(mt::SingleSatP,model::HelmholtzModel, _p)
         return state(mol_v=vc,t=tc)
     elseif p > Pc
         throw(error("the phase is supercritical at pressure = $p Pa"))
+    else
     end
     Tc = temperature(model,CriticalPoint())
     model_pred = single_sat_aprox(model)
     t_pred = temperature_impl(mt,model_pred,p) #prediction temperature
-    vv = v_zeros(_pt,volume_solver_type(model),model,p,t_pred)
+    vv = v_zeros(_pt,model,p,t_pred)
 
-    v1 = liquid_fzero(_p,p,t)
+    v1 = first(vv)
     #(v1 == v2) && return v1
-    v2 = gas_fzero(_p,p,t)
+    v2 = last(vv)
     if v1 ≈ v2
         throw(error("cannot converge at pressure = $p Pa"))
     else
-    px = p
-    _A(z, t) = mol_helmholtz_impl(QuickStates.vt(),model, z, t)
-    v1old = zero(TTT)
-    v2old = zero(TTT)
-    Told = TTT(-100.0)
-    Tx = t_pred
-    for i = 1:20
-        if i > 1
-            v1old = v1
-            v2old = v2
-        end
-        A = z -> _A(z, Tx)
-        _v1 = Threads.@spawn v_zero($_pt,model,$p,$Tx,0.95*$v1;phase=:liquid)
-        _v2 = Threads.@spawn v_zero($_pt,model,$p,$Tx,1.05*$v2;phase=:gas)
-        v1 = fetch(_v1)
-        v2 = fetch(_v2)
+        px = p
+        _A(z, t) = mol_helmholtz_impl(QuickStates.vt(),model, z, t)
+        v1old = zero(TTT)
+        v2old = zero(TTT)
+        Told = TTT(-100.0)
+        Tx = t_pred
+        for i = 1:20
+            if i > 1
+                v1old = v1
+                v2old = v2
+            end
+            A = z -> _A(z, Tx)
+            _v1 = Threads.@spawn v_zero($_pt,model,$p,$Tx,0.95*$v1;phase=:liquid)
+            _v2 = Threads.@spawn v_zero($_pt,model,$p,$Tx,1.05*$v2;phase=:gas)
+            v1 = fetch(_v1)
+            v2 = fetch(_v2)
 
-        if abs(v1 - v1old) / v1 < 1e-15 && i > 1
-            #println("v1 condition")
-            break
-        elseif abs(v2 - v2old) / v2 < 1e-15 && i > 1
-            #println("v2 condition")
-            break
-        end
-        
-        _px(T) = (_A(v1, T) - _A(v2, T)) / (v2 - v1) - p
-        #_px(T) = exp(_A(v1,T)-_A(v2,T)) - one(Tx)
-        Told = Tx
-        Tx = Roots.find_zero(_px, Tx)
-        if abs(Told - Tx) < 1e-10 * Tx
-            #println("P condition")
-            break
+            if abs(v1 - v1old) / v1 < 1e-15 && i > 1
+                #println("v1 condition")
+                break
+            elseif abs(v2 - v2old) / v2 < 1e-15 && i > 1
+                #println("v2 condition")
+                break
+            end
+            
+            _px(T) = (_A(v1, T) - _A(v2, T)) / (v2 - v1) - p
+            #_px(T) = exp(_A(v1,T)-_A(v2,T)) - one(Tx)
+            Told = Tx
+            Tx = Roots.find_zero(_px, Tx)
+            if abs(Told - Tx) < 1e-10 * Tx
+                #println("P condition")
+                break
+            end
         end
     end
 
@@ -89,11 +91,14 @@ function flash_impl(mt::SingleSatT,model::HelmholtzModel, _t)
     p_pred = pressure_impl(mt,model_pred,t)
     p = p_pred
     _p(z) = pressure_impl(QuickStates.vt(),model, z, t)
-    v1 = liquid_fzero(_p,p,t)
+    
+    vv = v_zeros(_pt,model,p,t)
+
+    v1 = first(vv)
     #(v1 == v2) && return v1
-    v2 = gas_fzero(_p,p,t)
+    v2 = last(vv)
     if v1 ≈ v2
-        throw(error("the phase is stable at temperature = $T K"))
+        throw(error("cannot converge at temperature = $T K"))
     else
 
         p1 = _p(v1)
@@ -167,6 +172,9 @@ function equilibria(mt::SingleSatT,model::HelmholtzModel,st::ThermodynamicState)
     t = temperature(FromState(),st)
     return flash_impl(mt,model,t)
 end
+
+
+
 
 function equilibria(mt::SingleΦT,model::HelmholtzModel,st::ThermodynamicState)
     t = temperature(FromState(),st)

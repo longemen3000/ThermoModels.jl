@@ -68,16 +68,9 @@ include("models/iapws95.jl")
 include("models/gerg2008.jl")
 include("models/lennon2000air.jl")
 
-include("models/if97/if97.jl")
 
-waterp(v) = pressure_impl(QuickStates.vt(),IAPWS95(),v,373.15)
 
-const  Water3 =ThermoModels.GERG2008(:H2O)
-waterp2(v) = pressure_impl(QuickStates.vt(),Water3,v,373.15)
-waterp3(v) = pressure_impl(QuickStates.vt(),Water3,v,300.0)
-
-export roots_fzero, gas_fzero,suva_fzero, waterp,waterp2,waterp3
-export IAPWS95, WaterIF97, GERG2008
+export IAPWS95, GERG2008
 export Saturation 
 export equilibria,kvalues
 export fugacity_coeff_impl,kvalues,flash_impl,normalizefrac!!

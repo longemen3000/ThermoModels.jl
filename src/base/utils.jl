@@ -205,6 +205,10 @@ function nan_to_num(xi)
     end
 end
 
+function remove_minimums!!(x,minval=zero(eltype(x)))
+    return @! x .= max.(x,minval)
+end
+
 function gdem(X, X1, X2, X3)
     dX2 = X - X3
     dX1 = X - X2

@@ -56,16 +56,25 @@ function rr_find_zero(f0,(vmin,vmax),method::Roots.Newton)
 end
 
 function flash_vfrac(model::RR,K,Z,roots_method=Roots.Order0())
+    #@show K
     Kmin0 = minimum(K)
     Kmax0 = maximum(K)
-    if (Kmin0 > 1.0) | (Kmax0 < 1.0)
-        return ArgumentError("no positive composition solution with given K-values")
-    end
+    #if (Kmin0 > 1.0) | (Kmax0 < 1.0)
+    #    return ArgumentError("no positive composition solution with given K-values")
+    #end
     vfmin,vfmax = vf0(K,Z)
-
+    #vfmin = max(vfmin,zero(vfmin))
+    #vfmax = min(vfmax,one(vfmax))
+    #vfmin > vfmax && return 1.0
+    #@show vfmin,vfmax
     function rr(k,z,β)
-        km1 = k-one(k)
-        return z*km1/(1+β*km1)
+        if iszero(β)
+            rr0(k,z)
+        elseif isone(β)
+            rr1(k,z)
+        else
+            rry(k,z,β)
+        end
     end
     f0(β) = mapreduce((k,z)->rr(k,z,β),+,K,Z)
     βres = rr_find_zero(f0,(vfmin,vfmax),roots_method)
@@ -101,6 +110,31 @@ function flash_vfrac(model::PolynomialRachfordRice,K,Z,method=nothing)
         return DomainError("analytical solutions are only available for 2,3,or 4 compounds")
     end
 end
+#=
+n0 = b*nv + (1-b)*nl
+nv + nl = n0
+z0 = nv/(nv+nl) + (1-b)nl/(nv+nl)
+
+
+
+
+=#
+"""
+    vfrac_from_fracs(z0,xl,xv)
+
+Returns the molar vapor fraction, given the molar fractions of the initial feed, the liquid phase and the gas phase
+"""
+function vfrac_from_fracs(z0,xl,xv)
+    β = zero(eltype(z0))
+    for i in 1:length(z0)
+        βi = (z0[i] - xl[i])/(xv[i] - xl[i])
+        if !isnan(βi) & !isinf(βi) & !iszero(βi)
+            β = βi
+        end
+        @show βi
+    end
+    return β
+end
 
 
 function rr0(k,z)
@@ -108,15 +142,15 @@ function rr0(k,z)
     return z*km1
 end 
 
-function rr1(k,z)
-    k1 = one(k)
-    return z*(k1-k1/k)
+function rr1(k::T,z) where T
+    _1 = one(T)
+    return z*(_1-_1/k)
 end
 
-function rry(k,z,y)
-    k1 = one(k)
-    km1 = k-k1
-    return z*km1/(k1+β*km1)
+function rry(k::T,z,y) where T
+    _1 = one(T)
+    km1 = k-_1
+    return z*km1/(_1+y*km1)
 end         
 
 function flash_eval(K,Z,β)  
@@ -128,7 +162,26 @@ function flash_eval(K,Z,β)
         return mapreduce((k,z)->rry(k,z,β),+,K,Z)
     end
 end
+###K.value
 
+##kᵢ = xvᵢ/xlᵢ
+
+# if kᵢ = 0, there is not liquid phase (non-condensable)
+# if kᵢ = inf there is not gas phase (only liquid)
+#kᵢ = 0, ignore in liquid phase
+#kᵢ = Inf or NaN, ignore in liquid phase
+
+"""
+    flash_vapor(k,z,β) 
+Returns the gas phase composition, given k-values `k`, the initial molar composition `z` and the molar vapor fraction ´β´.
+
+Each gas phase composition is calculated acording to:
+
+    xvᵢ = kᵢzᵢ/(1+ β(kᵢ-1))
+
+For an implace-if-posible version, use `flash_vapor!!(res,k,z,β)`
+
+"""
 function flash_vapor(k,z,β)
     function f(ki,zi)
     _1 = one(ki) 
@@ -137,23 +190,36 @@ function flash_vapor(k,z,β)
 
     return map(f,k,z)
 end
+"""
+    flash_liquid(k,z,β) 
+Returns the liquid phase composition, given k-values `k`, the initial molar composition `z` and the molar vapor fraction ´β´.
 
+Each gas phase composition is calculated acording to:
+
+    xlᵢ = zᵢ/(1+ β(kᵢ-1))
+
+For an implace-if-posible version, use `flash_liquid!!(res,k,z,β)`
+"""
 function flash_liquid(k,z,β)
     function f(ki,zi)
         _1 = one(ki) 
-    return zi/(_1+β*(ki-_1))
+        return zi/(_1+β*(ki-_1))
     end
     return map(f,k,z)
 end
 
 function flash_vapor!!(res,k,z,β)
+
     _1 = one(eltype(k)) 
-    @! res .=  k .* z ./ (_1 .+ β .*(k .-_1))
+    @! res .=  (k .* z ./ (_1 .+ β .*(k .-_1)))
+    return res
 end
 
 function flash_liquid!!(res,k,z,β)
     _1 = one(eltype(k)) 
-    @! res .= z ./ (_1 .+ β .*(k .-_1))
+    @! res .= z ./ (_1 .+ β .*(k .-_1)) 
+
+    return res
 end
 
 

@@ -131,7 +131,7 @@ end
 
 
 model_type(x::IAPWS95) = QuickStates.vt()
-volume_solver_type(x::IAPWS95) = VolumeBisection()
+volume_solver_type(x::IAPWS95) = SUVA()
 function Base.show(io::IO,model::IAPWS95) 
     print("IAPWS95 model for water")
 end
@@ -139,7 +139,7 @@ end
 molecular_weight(model::IAPWS95) = 18.015268#MW
 covolumes(model::IAPWS95) =1.4981e-5 #10000 bar
 
-single_sat_aprox(model::IAPWS95) = WaterIF97()
+single_sat_aprox(model::IAPWS95) =WaterSat()
 
 function temperature(model::IAPWS95,::CriticalPoint,unit=u"K")  
     return convert_unit(u"K",unit,647.096)
@@ -157,8 +157,4 @@ temperature(model::IAPWS95,::NormalBoilingPoint,unit=u"K")  = convert_unit(u"K",
 
 temperature(model::IAPWS95,::TriplePoint,unit=u"K")  = convert_unit(u"K",unit,273.16)
 pressure(model::IAPWS95,::TriplePoint,unit=u"Pa")  = convert_unit(u"Pa",unit,611.657)
-
-liquid_volume_aprox(model::IAPWS95) = 0.001
-gas_volume_aprox(model::IAPWS95) = 0.001
-
 

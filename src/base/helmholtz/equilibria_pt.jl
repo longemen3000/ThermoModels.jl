@@ -12,7 +12,7 @@ function fugacity_coeff_impl(mt::MultiVT,model::HelmholtzModel,v,t,x)
 end
 
 
-function flash_impl(mt::MultiPT,model,p,t,z0,threaded=true)
+function flash_impl(mt::MultiPT,model,p,t,z0;threaded=true)
     _0 = zero(p*t*first(z0))
     _1 = one(_0)
     logϕ0 = similar(z0)
@@ -21,6 +21,7 @@ function flash_impl(mt::MultiPT,model,p,t,z0,threaded=true)
     end
     kmodel = WilsonK(model)
     k = kvalues_impl(mt,kmodel,p,t,z0)
+    #@show k
     g_0 = flash_eval(k,z0,_0)
     g_1 = flash_eval(k,z0,_1)
     if g_0 <= 0  #bubble point assumption
@@ -45,6 +46,7 @@ function flash_impl(mt::MultiPT,model,p,t,z0,threaded=true)
     logϕv = similar(xiv)
     xil = normalizefrac!!(xil)
     xiv = normalizefrac!!(xiv)
+    
     if threaded
         res_l = Threads.@spawn update_logϕ!!($model,logϕl,$p,$t,xil,nothing,:liquid)
         res_v = Threads.@spawn update_logϕ!!($model,logϕv,$p,$t,xiv,nothing,:vapor)
@@ -54,14 +56,15 @@ function flash_impl(mt::MultiPT,model,p,t,z0,threaded=true)
          vl,logϕl = update_logϕ!!(model,logϕl,p,t,xil,nothing,:liquid)
          vv,logϕv = update_logϕ!!(model,logϕv,p,t,xiv,nothing,:vapor)
      end
+     #@show logϕl,logϕv
     lnk = logϕl - logϕv
     @! k .= exp.(lnk)
-
+  
     for i = 1:5
         res = refine_k!!(model,p,t,z0,xil,xiv,vl,vv,k,logϕl,logϕv,lnk,threaded)
         xil,xiv,vl,vv,k,logϕl,logϕv,lnk,β = res
         if !(_0 <= β <= _1)
-            β = β0
+            #@show β = β0
             break
         end
     end
@@ -77,8 +80,11 @@ function flash_impl(mt::MultiPT,model,p,t,z0,threaded=true)
     ΔG = (1 - β) * tpdl + β * tpdv
     if all(>(0),(ΔG,tpdv,tpdl))
         stable_phase = true # more detailed stability phase analisis
+        #@show stable_phase
     else
         stable_phase = false #proceed to optim
+        #@show stable_phase
+
         vle_res = VLEResults(
             model = model
             ,vl = vl #liquid mol volume
@@ -96,20 +102,31 @@ function flash_impl(mt::MultiPT,model,p,t,z0,threaded=true)
             ,xiv = xiv) #mol fraction of gas
             
             fg! = generate_ptflash_objective(vle_res,threaded=threaded)
-            nv0 = zeros(length(xiv))
-            nv0 .+= xiv
-            nv0 .*= β
+
+                nv0 = zeros(length(xiv))
+                nv0 .+= xiv
+                nv0 .*= β
+
         
             optim_obj = OnceDifferentiable(only_fg!(fg!), nv0)
-            #==opts = Optim.Options(
-                                    iterations = 10,
+            opts = Optim.Options(
+                                    iterations = 1,
                                     store_trace = true,
                                     show_trace = true)
-            ==#
-        
-            optimize(optim_obj, nv0, Optim.BFGS())
             
-            return vtn_states(vle_res)
+        
+            lower =zeros(length(z0))
+            upper = Array(z0)
+  
+            optimize(optim_obj,nv0, Optim.LBFGS(),opts)
+            
+            #nv and nl results can be complete garbage,
+            #but xil and xiv are good.
+            @show vle_res.xil
+            @show vle_res.xiv
+            β = vfrac_from_fracs(z0,vle_res.xil,vle_res.xiv)
+            @show β
+            return vtx_states(vle_res)
     end
     #return original phase, for now an
     #todo: identify phase
@@ -152,15 +169,15 @@ function flash_impl(mt::MultiPT,model,p,t,z0,threaded=true)
 
     optim_obj = OnceDifferentiable(only_fg!(fg!), nv0)
     opts = Optim.Options()
-    #==opts = Optim.Options(
+    opts = Optim.Options(
                              iterations = 10,
                              store_trace = true,
                              show_trace = true)
-    ==#
+    
 
     optimize(optim_obj, nv0, Optim.BFGS(),opts)
     
-    return vtn_states(vle_res)
+    return vtx_states(vle_res)
 end
 
 
@@ -177,13 +194,19 @@ function refine_k!!(model,p,t,z0,xil,xiv,vl,vv,k,logϕl,logϕv,lnk,threaded)
     end
     @! lnk .= logϕl .- logϕv
     @! k .= exp.(lnk)
-    β = flash_vfrac(RR(),k,z0)
+  
+    β = flash_vfrac(RR(),k,z0) 
     xil = flash_liquid!!(xil,k,z0,β)
     xiv = flash_vapor!!(xiv,k,z0,β)
     xil = normalizefrac!!(xil)
     xiv = normalizefrac!!(xiv)
     
+    
+
+
+
     return xil,xiv,vl,vv,k,logϕl,logϕv,lnk,β
+    
 end
 
 #with values of p,t,x; returns a new logϕ,v
@@ -213,9 +236,7 @@ function create_logϕ!!(model,logϕ,p,t,x,v=nothing)
 end
 
 
-function remove_minimums!!(x,minval=sqrt(eps(eltype(x))))
-    return @! x .= max.(x,minval)
-end
+
 
 
 Base.@kwdef mutable struct VLEResults{MODEL,S,V}
@@ -260,12 +281,22 @@ function generate_ptflash_objective(obj::VLEResults;threaded = true)
         t = obj.tv
         p = obj.pv
         β = sum(nv)
+
         obj.nv = nv
-        obj.nl = obj.z0-nv
+        
+  
+        
+  
+        obj.nl = obj.z0 - obj.nv
+
+        
         obj.nl = remove_minimums!!(obj.nl)
         obj.nv = remove_minimums!!(obj.nv)
-        obj.xil = normalizefrac!!(obj.nl)
+        if !iszero(sum(obj.nl))
+            obj.xil = normalizefrac!!(obj.nl)
+        end
         obj.xiv = normalizefrac!!(obj.nv)
+        #@show obj.xil
         obj.vl ,obj.lnϕl = update_logϕ!!(obj.model,obj.lnϕl,p,t,obj.xil,obj.vl,:liquid)
         obj.vv ,obj.lnϕv = update_logϕ!!(obj.model,obj.lnϕv,p,t,obj.xiv,obj.vv,:gas)
     
@@ -280,6 +311,15 @@ function generate_ptflash_objective(obj::VLEResults;threaded = true)
         end
     end
     return flash_objective!
+end
+
+function equilibria(mt::MultiPT,model::HelmholtzModel,st::ThermodynamicState)
+    t = temperature(FromState(),st)
+    opts = options(FromState(),st)
+    thr = get(opts,:threaded,true)
+    p = pressure(FromState(),st)
+    z0 = mol_fraction(FromState(),st,nothing,molecular_weight(model))
+    return flash_impl(mt,model,p,t,z0,threaded=thr)
 end
 
 #v = xiv*β

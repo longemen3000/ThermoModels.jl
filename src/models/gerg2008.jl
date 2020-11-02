@@ -2534,7 +2534,7 @@ end
     
 
 single_sat_aprox(model::GERG2008{SingleComponent}) = LeeKesler(model)
-volume_solver_type(model::GERG2008) = VolumeBisection()
+volume_solver_type(model::GERG2008) = SUVA()
 
 function Base.show(io::IO, sp::GERG2008{TT}) where TT <:MaterialCompounds
     ln = length(sp.syms)

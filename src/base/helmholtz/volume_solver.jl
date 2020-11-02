@@ -1,34 +1,27 @@
 #returns a mol volume from P and T
-function v_zero(mt::SinglePT,model::HelmholtzModel,p,t,v0=nothing;phase=:unspecified)
+function v_zero(mt,model::HelmholtzModel,args...;kwargs...)
+    return v_zero(volume_solver_type(model),mt,model,args...;kwargs...)
+end
+
+function v_zero(::SUVA,mt::SinglePT,model::HelmholtzModel,p,t,v0=nothing;phase=:unspecified)
     _vt = QuickStates.vt()
     _p(_v) = pressure_impl(_vt,model,_v,t)
-    _g(_v) = mol_gibbs_impl(_vt,model,_v,t)
     if is_gas(phase)
         if isnothing(v0)
             v = gas_fzero(_p,p,t)
         else
             v = gas_fzero(_p,p,t,v0) 
         end
-        if isnan(v)
-            #println("isnan with v=",v0,", p= ",p,", t = ",t)
-            vs = v_zeros(mt,volume_solver_type(model),model,p,t)
-            return last(vs)
-        else
-            return v
-        end
     elseif is_liquid(phase)
         if isnothing(v0)
-            vs = v_zeros(mt,volume_solver_type(model),model,p,t)
-            v = first(vs)
+            v = liquid_fzero(_p,p,t)
             return v
         else
             try
                 v= roots_fzero(_p,p,t,v0)
                 return v
             catch
-                println("isnan with v=",v0,", p= ",p,", t = ",t)
-                vs = v_zeros(mt,volume_solver_type(model),model,p,t)
-                v = first(vs)
+                v = liquid_fzero(_p,p,t)
                 return v
             end
         end
@@ -45,12 +38,84 @@ function v_zero(mt::SinglePT,model::HelmholtzModel,p,t,v0=nothing;phase=:unspeci
     end
 end
 #returns all mol volumes from P and T
-function v_zeros(::SinglePT,
-    method::VolumeBisection,
-    model::HelmholtzModel,
-    p,
-    t)
-    no_pts = method.pts
+
+function v_zero(::SUVA,mt::MultiPT,model::HelmholtzModel,p,t,x,v0=nothing;phase=:unspecified)
+    _vt = QuickStates.vtx()
+    _p(_v) = pressure_impl(_vt,model,_v,t,x)
+    if is_gas(phase)
+        if isnothing(v0)
+            v = gas_fzero(_p,p,t)
+        else
+            v = gas_fzero(_p,p,t,v0) 
+        end
+
+    elseif is_liquid(phase)
+        if isnothing(v0)
+            v = v_zero(VolumeBisection(),mt,model,p,t,x;phase=phase)
+            #v = liquid_fzero(_p,p,t)
+            return v
+        else
+            try
+                v= roots_fzero(_p,p,t,v0)
+                return v
+            catch
+                v = v_zero(VolumeBisection(),mt,model,p,t,x;phase=phase)
+                #v = liquid_fzero(_p,p,t)
+                return v
+            end
+        end
+    else #return the phase with least gibbs energy
+        if isnothing(v0)
+            return v_zero_general(mt,model,p,t,x)
+
+        else
+            try
+                return roots_fzero(_p,p,t,v0)
+            catch
+
+                return v_zero_general(mt,model,p,t,x)
+            end
+        end
+    end
+end
+#returns all mol volumes from P and T
+function v_zeros(mt,model::HelmholtzModel,args...;kwargs...)
+    return v_zeros(volume_solver_type(model),mt,model,args...;kwargs...)
+end
+function v_zeros(::SUVA
+    ,mt::SinglePT
+    ,model::HelmholtzModel
+    ,p
+    ,t)
+
+    _vt = QuickStates.vt()
+    _p(_v) = pressure_impl(_vt,model,_v,t)
+    v1 = liquid_fzero(_p,p,t)
+    v2 = gas_fzero(_p,p,t)
+    return (v1,v2)
+end
+
+function v_zeros(::SUVA
+    ,mt::MultiPT
+    ,model::HelmholtzModel
+    ,p
+    ,t
+    ,x)
+
+    _vt = QuickStates.vtx()
+    _p(_v) = pressure_impl(_vt,model,_v,t,x)
+    v1 = liquid_fzero(_p,p,t)
+    v2 = gas_fzero(_p,p,t)
+    return (v1,v2)
+end
+
+
+function v_zeros(vmethod::VolumeBisection
+    ,mt::SinglePT
+    ,model::HelmholtzModel
+    ,p
+    ,t)
+    no_pts = vmethod.pts
     _p(z) = pressure_impl(QuickStates.vt(),model, z, t)
     fp(z) = _p(z) - p
     dfp(z) = ForwardDiff.derivative(fp, z)
@@ -69,51 +134,15 @@ function v_zeros(::SinglePT,
     return (first(vv),last(vv))
 end
 
-function v_zero(mt::MultiPT,model::HelmholtzModel,p,t,x,v0=nothing;phase=:unspecified)
-    _vt = QuickStates.vtx()
-    _p(_v) = pressure_impl(_vt,model,_v,t,x)
-    _g(_v) = mol_gibbs_impl(_vt,model,_v,t,x)
-    if is_gas(phase)
-        if isnothing(v0)
-            v = gas_fzero(_p,p,t)
-        else
-            v = gas_fzero(_p,p,t,v0) 
-        end
 
-    elseif is_liquid(phase)
-        if isnothing(v0)
-            v = liquid_fzero(_p,p,t)
-            return v
-        else
-            try
-                v= roots_fzero(_p,p,t,v0)
-                return v
-            catch
-                v = liquid_fzero(_p,p,t)
-                return v
-            end
-        end
-    else #return the phase with least gibbs energy
-        if isnothing(v0)
-            return v_zero_general(mt,model,p,t,x)
 
-        else
-            try
-                return roots_fzero(_p,p,t,v0)
-            catch
-                return v_zero_general(mt,model,p,t,x)
-            end
-        end
-    end
-end
-#returns all mol volumes from P and T
-function v_zeros(::MultiPT,
-    method::VolumeBisection,
+function v_zeros(vmethod::VolumeBisection,
+    ::MultiPT,
     model::HelmholtzModel,
     p,
     t,
     x)
-    no_pts = method.pts
+    no_pts = vmethod.pts
     _p(z) = pressure_impl(QuickStates.vtx(),model, z, t,x)
     fp(z) = _p(z) - p
     dfp(z) = ForwardDiff.derivative(fp, z)
@@ -124,11 +153,8 @@ function v_zeros(::MultiPT,
         max_v *= 2
         (max_v > typemax(max_v)/8) && break
     end
-    while fp(min_v) < 0
-        min_v *= 0.5
-        (min_v < sqrt(eps((max_v)))) && break
-    end
-    vv = find_zeros(fp, min_v, max_v, no_pts = no_pts)
+ 
+    vv = find_zeros(fp, eps(max_v), max_v, no_pts = no_pts)
     v1 = first(vv)
     v2 = last(vv)
     #v1 =  Roots.find_zero(fp,first(vv))
@@ -136,20 +162,79 @@ function v_zeros(::MultiPT,
     return (v1,v2)
 end
 
+function v_zero(vmethod::VolumeBisection
+    ,mt::SinglePT
+    ,model::HelmholtzModel
+    ,p
+    ,t
+    ,v0=nothing
+    ;phase=:unspecified)
+    
+    _p(z) = pressure_impl(QuickStates.vt(),model, z, t)
+
+    if !(v0 === nothing)
+        try
+            return roots_fzero(_p,p,t,v0)
+        catch
+            return v_zero_general(mt,model,p,t)
+        end
+    end
+    gas = is_gas(phase)
+    liquid = is_liquid(phase)
+    if !gas & !liquid
+        return v_zero_general(mt,model,p,t)
+    end
+       
+    (vl,vg) = v_zeros(vmethod,mt,model,p,t)
+    if gas
+        return vg
+    else
+        return vl
+    end
+end
+
+
+function v_zero(vmethod::VolumeBisection
+    ,mt::MultiPT
+    ,model::HelmholtzModel
+    ,p
+    ,t
+    ,x
+    ,v0=nothing
+    ;phase=:unspecified)
+    
+    _p(z) = pressure_impl(QuickStates.vtx(),model, z, t,x)
+
+    if !(v0 === nothing)
+        try
+            return roots_fzero(_p,p,t,v0)
+        catch
+            return v_zero_general(mt,model,p,t,x)
+        end
+    end
+    gas = is_gas(phase)
+    liquid = is_liquid(phase)
+    if !gas & !liquid
+        return v_zero_general(mt,model,p,t,x)
+    end
+       
+    (vl,vg) = v_zeros(vmethod,mt,model,p,t,x)
+    if gas
+        return vg
+    else
+        return vl
+    end
+end
+
+
+
 function v_zero_general(mt::SinglePT,model::HelmholtzModel,p,t)
     _vt = QuickStates.vt()
     _g(_v) = mol_gibbs_impl(_vt,model,_v,t)
     _p(_v) = pressure_impl(_vt,model,_v,t)  
-    #vs = v_zeros(mt,volume_solver_type(model),model,p,t)
-
     
-    v2 = liquid_fzero(_p,p,t)
+    v1,v2 = v_zeros(mt,model,p,t)
     #(v1 == v2) && return v1
-    vg = gas_fzero(_p,p,t)
-    v1 = vg
-    if !(_p(vg) ≈ p) #gas_fzero doesnt find gas phase
-        return v1
-    end
     g1 = _g(v1)
     g2 = _g(v2)
     if g1 < g2
@@ -166,17 +251,9 @@ function v_zero_general(mt::MultiPT,model::HelmholtzModel,p,t,x)
     _vt = QuickStates.vtx()
     _g(_v) = mol_gibbs_impl(_vt,model,_v,t,x)
     _p(_v) = pressure_impl(_vt,model,_v,t,x)  
-    vs = v_zeros(mt,volume_solver_type(model),model,p,t,x)
-
-    v1 = first(vs)
-    v2 = last(vs)
-    (v1 == v2) && return v1 #only root case
-    vg = gas_fzero(_p,p,t)
-    if !(_p(vg) ≈ p) #gas_fzero doesnt find gas phase
-        return v1
-    elseif v2 < vg #gas fzero found a bigger and mostly correct volume root
-    v2 = vg
-    end
+    
+    v1,v2 = v_zeros(mt,model,p,t,x)
+    #(v1 == v2) && return v1
     g1 = _g(v1)
     g2 = _g(v2)
     if g1 < g2
@@ -186,6 +263,11 @@ function v_zero_general(mt::MultiPT,model::HelmholtzModel,p,t,x)
     else #different volumes, but equal energies, equilibria conditions
         return v2
     end
+end
+
+function roots_fzero(p,pspec,t,v)
+    f0(x) = p(x) - pspec
+    return Roots.find_zero(f0,v)
 end
 
 function roots_fzero(p,pspec,t,v)
@@ -349,8 +431,14 @@ function _liquid_fzero(P,Pspec::TT,v0::TT,T::TT,relax = TT(0.9),maxevals=100, at
 
 
     end
-    #refine val
-    return roots_fzero(P,Pspec,T,v0)
+    p0 = P(v0)
+    m = ForwardDiff.derivative(P,v0)
+    #m = y2-y1/(x2-x1)
+    #(yx-y0) = m(xx-x0)
+    vx = (Pspec - p0)/m + v0
+    res =  roots_fzero(P,Pspec,T,vx)
+    #@show res
+    return res
 end
 
 #=
