@@ -2502,8 +2502,6 @@ pressure(model::GERG2008{SingleComponent},::CriticalPoint,unit=u"Pa") = convert_
 temperature(model::GERG2008{SingleComponent},::CriticalPoint,unit=u"K") = convert_unit(u"K",unit,only(model.criticalTemperature))
 mol_volume(model::GERG2008{SingleComponent},::CriticalPoint,unit=u"m^3/mol") = convert_unit(u"m^3/mol",unit,only(model.criticalVolume))
 acentric_factor(model::GERG2008{SingleComponent}) = only(model.acentric_factor)
-covolumes(model::GERG2008{SingleComponent}) =
-    0.0778 * only(model.criticalTemperature) * RGAS/ only(model.criticalPressure)
 
 #critical, multi component:
 
@@ -2527,9 +2525,6 @@ function acentric_factor(model::GERG2008{TT})  where TT <:MaterialCompounds
     return model.acentric_factor
 end
 
-function covolumes(model::GERG2008{TT})  where TT <:MaterialCompounds
-    return 0.0778 .* model.criticalTemperature .* RGAS ./ model.criticalPressure
-end
 
     
 

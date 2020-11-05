@@ -137,7 +137,6 @@ function Base.show(io::IO,model::IAPWS95)
 end
 
 molecular_weight(model::IAPWS95) = 18.015268#MW
-covolumes(model::IAPWS95) =1.4981e-5 #10000 bar
 
 single_sat_aprox(model::IAPWS95) =WaterSat()
 

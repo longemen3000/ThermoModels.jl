@@ -12,15 +12,16 @@ function fugacity_coeff_impl(mt::MultiVT,model::HelmholtzModel,v,t,x)
 end
 
 
-function flash_impl(mt::MultiPT,model,p,t,z0;threaded=true)
+function flash_impl(mt::MultiPT,model,p,t,z0;threaded=true,moles=one(eltype(z0)))
     _0 = zero(p*t*first(z0))
     _1 = one(_0)
     logϕ0 = similar(z0)
     if threaded
-        res_z0 = Threads.@spawn create_logϕ!!($model,logϕ0,$p,$t,z0)
+        res_z0 = Threads.@spawn update_logϕ!!(model,logϕ0,$p,$t,z0,nothing,:undefined)
     end
     kmodel = WilsonK(model)
-    k = kvalues_impl(mt,kmodel,p,t,z0)
+    k0 = kvalues_impl(mt,kmodel,p,t,z0)
+    k = copy(k0)
     #@show k
     g_0 = flash_eval(k,z0,_0)
     g_1 = flash_eval(k,z0,_1)
@@ -47,44 +48,58 @@ function flash_impl(mt::MultiPT,model,p,t,z0;threaded=true)
     xil = normalizefrac!!(xil)
     xiv = normalizefrac!!(xiv)
     
-    if threaded
-        res_l = Threads.@spawn update_logϕ!!($model,logϕl,$p,$t,xil,nothing,:liquid)
-        res_v = Threads.@spawn update_logϕ!!($model,logϕv,$p,$t,xiv,nothing,:vapor)
-         vl,logϕl = fetch(res_l)
-         vv,logϕv = fetch(res_v)
-     else
-         vl,logϕl = update_logϕ!!(model,logϕl,p,t,xil,nothing,:liquid)
-         vv,logϕv = update_logϕ!!(model,logϕv,p,t,xiv,nothing,:vapor)
-     end
-     #@show logϕl,logϕv
+    vl,logϕl,vv,logϕv = update_logϕ_vl!!(model,p,t,z0,xil,xiv,logϕl,logϕv,nothing,nothing,threaded)
+
     lnk = logϕl - logϕv
     @! k .= exp.(lnk)
-  
+    stable_phase = false
     for i = 1:5
         res = refine_k!!(model,p,t,z0,xil,xiv,vl,vv,k,logϕl,logϕv,lnk,threaded)
         xil,xiv,vl,vv,k,logϕl,logϕv,lnk,β = res
         if !(_0 <= β <= _1)
-            #@show β = β0
+            stable_phase = true
             break
         end
     end
     #if the process was threaded, the value is fetched here
     if !threaded
-        vz0,logϕ0 = create_logϕ!!(model,logϕ0,p,t,z0)
+        vz0,logϕ0 = update_logϕ!!(model,logϕ0,p,t,z0,nothing,:undefined)
     else
         vz0,logϕ0 = fetch(res_z0)
     end
 
-    tpdl = flash_tpd(xil, logϕl,z0,logϕ0)
-    tpdv = flash_tpd(xiv, logϕv,z0,logϕ0)
-    ΔG = (1 - β) * tpdl + β * tpdv
-    if all(>(0),(ΔG,tpdv,tpdl))
-        stable_phase = true # more detailed stability phase analisis
-        #@show stable_phase
-    else
-        stable_phase = false #proceed to optim
-        #@show stable_phase
+    if stable_phase == false
+        tpdl = flash_tpd(xil, logϕl,z0,logϕ0)
+        tpdv = flash_tpd(xiv, logϕv,z0,logϕ0)
+        ΔG = (1 - β) * tpdl + β * tpdv
+        if all(>(0),(ΔG,tpdv,tpdl))
+            stable_phase = true # more detailed stability phase analisis
+        end
+    end
 
+    if stable_phase == true
+        mul_v = copy(xiv)
+        mul_l = copy(xiv)
+        xil,xiv,vl,vv = trial_compositions!!(model,p,t,z0,xil,xiv,vl,vv,logϕl,logϕv,logϕ0,mul_v,mul_l,true;k0=k0)  
+        count = 1
+        max_count = 10
+        while count < max_count
+            xil,xiv,vl,vv,tpdl,tpdv = trial_compositions!!(model,p,t,z0,xil,xiv,vl,vv,logϕl,logϕv,logϕ0,mul_v,mul_l,true)  
+            converged,stable_phase = trial_convergence(z0,xil,xiv,mul_l,mul_v,tpdl,tpdv,stable_phase)
+            if converged == true
+                break
+            else
+                count += 1
+            end
+        end
+        if stable_phase == false
+            for i in 1:3
+                xil,xiv,vl,vv,tpdl,tpdv = trial_compositions!!(model,p,t,z0,xil,xiv,vl,vv,logϕl,logϕv,logϕ0,mul_v,mul_l,true)  
+            end
+        end
+    end
+
+    if stable_phase == false
         vle_res = VLEResults(
             model = model
             ,vl = vl #liquid mol volume
@@ -100,98 +115,75 @@ function flash_impl(mt::MultiPT,model,p,t,z0;threaded=true)
             ,nv = copy(xiv) #moles of gas
             ,xil = xil #mol fraction of liquid
             ,xiv = xiv) #mol fraction of gas
-            
+        
             fg! = generate_ptflash_objective(vle_res,threaded=threaded)
-
-                nv0 = zeros(length(xiv))
-                nv0 .+= xiv
-                nv0 .*= β
-
-        
-            optim_obj = OnceDifferentiable(only_fg!(fg!), nv0)
-            opts = Optim.Options(
-                                    iterations = 1,
-                                    store_trace = true,
-                                    show_trace = true)
-            
-        
-            lower =zeros(length(z0))
-            upper = Array(z0)
-  
-            optimize(optim_obj,nv0, Optim.LBFGS(),opts)
-            
-            #nv and nl results can be complete garbage,
-            #but xil and xiv are good.
-            @show vle_res.xil
-            @show vle_res.xiv
-            β = vfrac_from_fracs(z0,vle_res.xil,vle_res.xiv)
-            @show β
-            return vtx_states(vle_res)
+            nv0 = zeros(length(xiv))
+            nv0 .+= xiv
+            nv0 .*= β
+        optim_obj = OnceDifferentiable(only_fg!(fg!), nv0)
+        optimize(optim_obj,nv0, Optim.LBFGS())
+        return vtx_states(vle_res,moles)
     end
-    #return original phase, for now an
-    #todo: identify phase
+  
     return state(t=t,v=vz0,xn = z0)
-    #"return error("phase is not stable")
-    #println(stable_phase)
-    #==))
-    interres =  Dict{Symbol,Any}(:xl =>xil
-    ,:xv => xiv
-    ,:vl=> vl
-    ,:vv =>vv
-    ,:k=>k
-    ,:logϕl=> logϕl
-    ,:logϕv=> logϕv
-    ,:lnk=>lnk
-    ,:stable_phase=>stable_phase)
-    ==#
-    vle_res = VLEResults(
-    model = model
-    ,z0 = z0 #initial composition
-    ,vl = vl #liquid mol volume
-    ,vv = vv #gas mol volume
-    ,tv = t #temperature
-    ,pv = p #pressure
-    ,tl = t #temperature
-    ,pl = p #pressure
-    ,lnϕl = logϕl #efective log fugacity coef - liquid
-    ,lnϕv = logϕv #efective log fugacity coef - gas
-    ,nl = copy(xil) #moles of liquid
-    ,nv = copy(xiv) #moles of gas
-    ,xil = xil #mol fraction of liquid
-    ,xiv = xiv) #mol fraction of gas
-    
-    fg! = generate_ptflash_objective(vle_res,threaded=threaded)
-    nv0 = zeros(length(xiv))
-    nv0 .+= xiv
-    nv0 .*= β
-    #println(nv0)
-    #println(fg!(1,nothing,nv0))
-
-    optim_obj = OnceDifferentiable(only_fg!(fg!), nv0)
-    opts = Optim.Options()
-    opts = Optim.Options(
-                             iterations = 10,
-                             store_trace = true,
-                             show_trace = true)
-    
-
-    optimize(optim_obj, nv0, Optim.BFGS(),opts)
-    
-    return vtx_states(vle_res)
 end
 
 
+function trial_compositions!!(model,p,t,z0,xil,xiv,vl,vv,logϕl,logϕv,logϕ0,mul_v,mul_l,threaded=true;k0=nothing)  
+    if k0 !== nothing
+        @! xiv .= z0 .* k0
+        @! xil .= z0 ./ k0
+        xil = normalizefrac!!(xil)
+        xiv = normalizefrac!!(xiv) 
+        vl = nothing
+        vv = nothing
+        tpdv = convert(typeof(p),Inf)
+        tpdl = convert(typeof(p),Inf)
+    else
+        vl,logϕl,vv,logϕv = update_logϕ_vl!!(model,p,t,z0,xil,xiv,logϕl,logϕv,nothing,nothing,threaded)
+        mul_v = exp.(logϕ0 .- logϕv) 
+        mul_l = exp.(logϕ0 .- logϕl)
+        xiv = z0 .* mul_v
+        xil = z0 .* mul_l
+        xil = normalizefrac!!(xil)
+        xiv = normalizefrac!!(xiv) 
+        tpdl = flash_tpd(xil, logϕl,z0,logϕ0)
+        tpdv = flash_tpd(xiv, logϕv,z0,logϕ0)
+       
+    end
+    return xil,xiv,vl,vv,tpdl,tpdv
+end
+
+function trial_convergence(z0,xil,xiv,mul_l,mul_v,tpdl,tpdv,stable_phase)
+    new_stable_phase = stable_phase
+    @! mul_l .= mul_l .- one(eltype(mul_l)) 
+    @! mul_v .= mul_v .- one(eltype(mul_v)) 
+    #this checks for:
+    # a: the composition aproaches z0
+    # b: variation between iterations is very small
+
+    if norm(mul_v) ≈ 0.0
+        converged = true
+     elseif norm(mul_l) ≈ 0.0
+         converged = true
+     elseif xiv ≈ z0
+        converged = true
+    elseif xil ≈ z0
+        converged = true
+    elseif tpdl < 0
+        converged = true
+        new_stable_phase = false
+    elseif tpdv < 0
+        converged = true
+        new_stable_phase = false
+    else
+        converged = false
+    end
+    return converged,new_stable_phase
+end
 
 function refine_k!!(model,p,t,z0,xil,xiv,vl,vv,k,logϕl,logϕv,lnk,threaded)  
-    if threaded
-       res_l = Threads.@spawn update_logϕ!!(model,logϕl,$p,$t,xil,$vl,:liquid)
-       res_v = Threads.@spawn update_logϕ!!(model,logϕv,$p,$t,xiv,$vv,:vapor)
-        vl,logϕl = fetch(res_l)
-        vv,logϕv = fetch(res_v)
-    else
-        vl,logϕl = update_logϕ!!(model,logϕl,p,t,xil,vl,:liquid)
-        vv,logϕv = update_logϕ!!(model,logϕv,p,t,xiv,vv,:vapor)
-    end
+    vl,logϕl,vv,logϕv = update_logϕ_vl!!(model,p,t,z0,xil,xiv,logϕl,logϕv,vl,vv,threaded)
     @! lnk .= logϕl .- logϕv
     @! k .= exp.(lnk)
   
@@ -200,15 +192,25 @@ function refine_k!!(model,p,t,z0,xil,xiv,vl,vv,k,logϕl,logϕv,lnk,threaded)
     xiv = flash_vapor!!(xiv,k,z0,β)
     xil = normalizefrac!!(xil)
     xiv = normalizefrac!!(xiv)
-    
-    
-
-
 
     return xil,xiv,vl,vv,k,logϕl,logϕv,lnk,β
     
 end
 
+#update both liquid and gas fugacity coefficients, considering threading
+function update_logϕ_vl!!(model,p,t,z0,xil,xiv,logϕl,logϕv,vl=nothing,vv=nothing,threaded=true)  
+    if threaded
+        res_l = Threads.@spawn update_logϕ!!(model,logϕl,$p,$t,xil,$vl,:liquid)
+        res_v = Threads.@spawn update_logϕ!!(model,logϕv,$p,$t,xiv,$vv,:vapor)
+         vl,logϕl = fetch(res_l)
+         vv,logϕv = fetch(res_v)
+     else
+         vl,logϕl = update_logϕ!!(model,logϕl,p,t,xil,vl,:liquid)
+         vv,logϕv = update_logϕ!!(model,logϕv,p,t,xiv,vv,:vapor)
+     end
+     return vl,logϕl,vv,logϕv
+
+end
 #with values of p,t,x; returns a new logϕ,v
 function update_logϕ!!(model,logϕ,p,t,x,v=nothing,phase=:liquid)
     x = normalizefrac!!(x)
@@ -219,24 +221,11 @@ function update_logϕ!!(model,logϕ,p,t,x,v=nothing,phase=:liquid)
     return _v,logϕ
 end
 
+
 function flash_tpd(xi, lnϕ,x0,lnϕ0)
     f(xiᵢ,lnϕᵢ,x0ᵢ,lnϕ0ᵢ) = xiᵢ*(log(xiᵢ) + lnϕᵢ-log(x0ᵢ)- lnϕ0ᵢ)
     return mapreduce(f,+,xi, lnϕ,x0,lnϕ0)
 end
-
-
-#create value of logϕ for stream composition. selects volume with the lowest gibbs energy
-function create_logϕ!!(model,logϕ,p,t,x,v=nothing)
-    x = normalizefrac!!(x)
-    _vtx = QuickStates.vtx()      
-    _ptx = QuickStates.ptx()   
-    v =  v_zero(_ptx,model,p,t,x,v)
-    @! logϕ .= fugacity_coeff_impl(_vtx,model,v,t,x)
-    return v,logϕ
-end
-
-
-
 
 
 Base.@kwdef mutable struct VLEResults{MODEL,S,V}
@@ -256,9 +245,12 @@ Base.@kwdef mutable struct VLEResults{MODEL,S,V}
     xiv::V #mol fraction of gas
 end
 
-function vtx_states(obj::VLEResults)
-    stᵥ = state(mol_v=obj.vv,t=obj.tv,xn=obj.xiv,phase=:gas)
-    stₗ = state(mol_v=obj.vl,t=obj.tl,xn=obj.xil,phase=:liquid)
+function vtx_states(obj::VLEResults,moles=1.0)
+    β = sum(obj.nv)
+    nv = β*moles
+    nl = (1-β)*moles
+    stᵥ = state(mol_v=obj.vv,t=obj.tv,xn=obj.xiv,moles=nv,phase=:gas)
+    stₗ = state(mol_v=obj.vl,t=obj.tl,xn=obj.xil,moles=nl,phase=:liquid)
     return (stₗ,stᵥ)
 end
 
@@ -281,21 +273,17 @@ function generate_ptflash_objective(obj::VLEResults;threaded = true)
         t = obj.tv
         p = obj.pv
         β = sum(nv)
-
         obj.nv = nv
-        
-  
-        
-  
-        obj.nl = obj.z0 - obj.nv
-
-        
+        obj.nl = abs.(obj.z0 - obj.nv)
+        #corr = minimum(obj.nl)
+        #@show obj.nl
+        #obj.nl = obj.z0 - obj.nv - corr
+        #@show obj.nl
         obj.nl = remove_minimums!!(obj.nl)
         obj.nv = remove_minimums!!(obj.nv)
-        if !iszero(sum(obj.nl))
-            obj.xil = normalizefrac!!(obj.nl)
-        end
+        obj.xil = normalizefrac!!(obj.nl)
         obj.xiv = normalizefrac!!(obj.nv)
+
         #@show obj.xil
         obj.vl ,obj.lnϕl = update_logϕ!!(obj.model,obj.lnϕl,p,t,obj.xil,obj.vl,:liquid)
         obj.vv ,obj.lnϕv = update_logϕ!!(obj.model,obj.lnϕv,p,t,obj.xiv,obj.vv,:gas)
@@ -319,7 +307,8 @@ function equilibria(mt::MultiPT,model::HelmholtzModel,st::ThermodynamicState)
     thr = get(opts,:threaded,true)
     p = pressure(FromState(),st)
     z0 = mol_fraction(FromState(),st,nothing,molecular_weight(model))
-    return flash_impl(mt,model,p,t,z0,threaded=thr)
+    _moles = moles(FromState(),st,u"mol",molecular_weight(model))
+    return flash_impl(mt,model,p,t,z0,threaded=thr,moles=_moles)
 end
 
 #v = xiv*β

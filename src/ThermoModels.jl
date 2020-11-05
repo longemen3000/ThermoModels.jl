@@ -35,7 +35,7 @@ import NLSolversBase
 using NLSolversBase: only_fg!,OnceDifferentiable
 
 import LinearAlgebra
-using LinearAlgebra: dot
+using LinearAlgebra: dot,norm
 
 import BangBang
 using BangBang: @!

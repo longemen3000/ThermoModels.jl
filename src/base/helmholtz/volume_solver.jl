@@ -1,9 +1,9 @@
 #returns a mol volume from P and T
-function v_zero(mt,model::HelmholtzModel,args...;kwargs...)
+function v_zero(mt,model,args...;kwargs...)
     return v_zero(volume_solver_type(model),mt,model,args...;kwargs...)
 end
 
-function v_zero(::SUVA,mt::SinglePT,model::HelmholtzModel,p,t,v0=nothing;phase=:unspecified)
+function v_zero(::SUVA,mt::SinglePT,model,p,t,v0=nothing;phase=:unspecified)
     _vt = QuickStates.vt()
     _p(_v) = pressure_impl(_vt,model,_v,t)
     if is_gas(phase)
@@ -14,17 +14,20 @@ function v_zero(::SUVA,mt::SinglePT,model::HelmholtzModel,p,t,v0=nothing;phase=:
         end
     elseif is_liquid(phase)
         if isnothing(v0)
-            v = liquid_fzero(_p,p,t)
+            v = v_zero(VolumeBisection(),mt,model,p,t;phase=phase)
+            #v = liquid_fzero(_p,p,t)
             return v
         else
             try
                 v= roots_fzero(_p,p,t,v0)
                 return v
             catch
-                v = liquid_fzero(_p,p,t)
+                v = v_zero(VolumeBisection(),mt,model,p,t;phase=phase)
+                #v = liquid_fzero(_p,p,t)
                 return v
             end
         end
+
     else #return the phase with least gibbs energy
         if isnothing(v0)
             return v_zero_general(mt,model,p,t)
@@ -39,7 +42,7 @@ function v_zero(::SUVA,mt::SinglePT,model::HelmholtzModel,p,t,v0=nothing;phase=:
 end
 #returns all mol volumes from P and T
 
-function v_zero(::SUVA,mt::MultiPT,model::HelmholtzModel,p,t,x,v0=nothing;phase=:unspecified)
+function v_zero(::SUVA,mt::MultiPT,model,p,t,x,v0=nothing;phase=:unspecified)
     _vt = QuickStates.vtx()
     _p(_v) = pressure_impl(_vt,model,_v,t,x)
     if is_gas(phase)
@@ -79,7 +82,7 @@ function v_zero(::SUVA,mt::MultiPT,model::HelmholtzModel,p,t,x,v0=nothing;phase=
     end
 end
 #returns all mol volumes from P and T
-function v_zeros(mt,model::HelmholtzModel,args...;kwargs...)
+function v_zeros(mt,model,args...;kwargs...)
     return v_zeros(volume_solver_type(model),mt,model,args...;kwargs...)
 end
 function v_zeros(::SUVA
@@ -97,7 +100,7 @@ end
 
 function v_zeros(::SUVA
     ,mt::MultiPT
-    ,model::HelmholtzModel
+    ,model
     ,p
     ,t
     ,x)
@@ -112,49 +115,44 @@ end
 
 function v_zeros(vmethod::VolumeBisection
     ,mt::SinglePT
-    ,model::HelmholtzModel
+    ,model
     ,p
-    ,t)
+    ,t
+    ;phase=:unspecified)
     no_pts = vmethod.pts
     _p(z) = pressure_impl(QuickStates.vt(),model, z, t)
     fp(z) = _p(z) - p
-    dfp(z) = ForwardDiff.derivative(fp, z)
-        min_v = only(covolumes(model))
         max_v = 40 * t / p #approx 5 times ideal gas
     #this is to be sure that (min_v,max_v) is a bracketing interval
-    while fp(max_v) > 0
+    while (fp(max_v)) > 0 |  (_p(max_v) < 0)
         max_v *= 2
-        (max_v > typemax(max_v)/8) && break
+        (max_v > typemax(max_v)*0.125) && break
     end
-    while fp(min_v) < 0
-        min_v *= 0.5
-        (min_v < sqrt(eps((max_v)))) && break
-    end
-    vv = find_zeros(fp, min_v, max_v, no_pts = no_pts)
+
+    vv = find_zeros(fp, eps(typeof(max_v)), max_v, no_pts = no_pts)
     return (first(vv),last(vv))
 end
 
 
 
 function v_zeros(vmethod::VolumeBisection,
-    ::MultiPT,
-    model::HelmholtzModel,
+    mt::MultiPT,
+    model,
     p,
     t,
-    x)
+    x
+    ;phase=:unspecified)
     no_pts = vmethod.pts
     _p(z) = pressure_impl(QuickStates.vtx(),model, z, t,x)
     fp(z) = _p(z) - p
-    dfp(z) = ForwardDiff.derivative(fp, z)
-        min_v = dot(covolumes(model),x)
         max_v = 40 * t / p #approx 5 times ideal gas
     #this is to be sure that (min_v,max_v) is a bracketing interval
-    while fp(max_v) > 0
+    while (fp(max_v)) > 0 |  (_p(max_v) < 0)
         max_v *= 2
-        (max_v > typemax(max_v)/8) && break
+        (max_v > typemax(max_v)*0.125) && break
     end
  
-    vv = find_zeros(fp, eps(max_v), max_v, no_pts = no_pts)
+    vv = find_zeros(fp, eps(typeof(max_v)), max_v, no_pts = no_pts)
     v1 = first(vv)
     v2 = last(vv)
     #v1 =  Roots.find_zero(fp,first(vv))
@@ -164,7 +162,7 @@ end
 
 function v_zero(vmethod::VolumeBisection
     ,mt::SinglePT
-    ,model::HelmholtzModel
+    ,model
     ,p
     ,t
     ,v0=nothing
@@ -196,7 +194,7 @@ end
 
 function v_zero(vmethod::VolumeBisection
     ,mt::MultiPT
-    ,model::HelmholtzModel
+    ,model
     ,p
     ,t
     ,x
@@ -228,7 +226,7 @@ end
 
 
 
-function v_zero_general(mt::SinglePT,model::HelmholtzModel,p,t)
+function v_zero_general(mt::SinglePT,model,p,t)
     _vt = QuickStates.vt()
     _g(_v) = mol_gibbs_impl(_vt,model,_v,t)
     _p(_v) = pressure_impl(_vt,model,_v,t)  
@@ -247,7 +245,7 @@ function v_zero_general(mt::SinglePT,model::HelmholtzModel,p,t)
 end
 
 #finds the root with lowest gibbs energy, corrected for gas
-function v_zero_general(mt::MultiPT,model::HelmholtzModel,p,t,x)
+function v_zero_general(mt::MultiPT,model,p,t,x)
     _vt = QuickStates.vtx()
     _g(_v) = mol_gibbs_impl(_vt,model,_v,t,x)
     _p(_v) = pressure_impl(_vt,model,_v,t,x)  
@@ -270,10 +268,6 @@ function roots_fzero(p,pspec,t,v)
     return Roots.find_zero(f0,v)
 end
 
-function roots_fzero(p,pspec,t,v)
-    f0(x) = p(x) - pspec
-    return Roots.find_zero(f0,v)
-end
 #Sucessive van der waals approximations, patent pending (lol)
 #aproximates locally the function to a van der waals
 #gas_fzero aproximates supposing gas phase (a-aproximation)
