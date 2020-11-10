@@ -69,7 +69,7 @@ end
 
 function cubic_aα(model::PengRobinson,t,i,j)
     
-    m_poly = (0.47979, 1.576, 0.1925, 0.025)
+    m_poly = (0.37464,1.54226,0.26992)
     _1 = one(t)
     aᵢ =model._a[i]
     tcᵢ = model.tc[i]
