@@ -63,6 +63,7 @@ function flash_vfrac(model::RR,K,Z,roots_method=Roots.Order0())
     #    return ArgumentError("no positive composition solution with given K-values")
     #end
     vfmin,vfmax = vf0(K,Z)
+    abs(vfmin - vfmax) < sqrt(eps(1.0)) && return 0.5*(vfmin + vfmax)
     #vfmin = max(vfmin,zero(vfmin))
     #vfmax = min(vfmax,one(vfmax))
     #vfmin > vfmax && return 1.0
@@ -119,23 +120,6 @@ z0 = nv/(nv+nl) + (1-b)nl/(nv+nl)
 
 
 =#
-"""
-    vfrac_from_fracs(z0,xl,xv)
-
-Returns the molar vapor fraction, given the molar fractions of the initial feed, the liquid phase and the gas phase
-"""
-function vfrac_from_fracs(z0,xl,xv)
-    β = zero(eltype(z0))
-    for i in 1:length(z0)
-        βi = (z0[i] - xl[i])/(xv[i] - xl[i])
-        if !isnan(βi) & !isinf(βi) & !iszero(βi)
-            β = βi
-        end
-        @show βi
-    end
-    return β
-end
-
 
 function rr0(k,z)
     km1 = k-one(k)
@@ -209,16 +193,15 @@ function flash_liquid(k,z,β)
 end
 
 function flash_vapor!!(res,k,z,β)
-
-    _1 = one(eltype(k)) 
-    @! res .=  (k .* z ./ (_1 .+ β .*(k .-_1)))
+    _1 = one(eltype(res)) 
+    @! res +=  k .* z ./ (_1 .+ β .*(k .-_1)) .- res
+    
     return res
 end
 
 function flash_liquid!!(res,k,z,β)
     _1 = one(eltype(k)) 
-    @! res .= z ./ (_1 .+ β .*(k .-_1)) 
-
+    @! res += z ./ (_1 .+ β .*(k .-_1)) .- res
     return res
 end
 

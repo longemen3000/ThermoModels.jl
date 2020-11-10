@@ -1,4 +1,6 @@
 
+const SINGLE = SingleComponent
+const MULTI = MaterialCompounds{MOLAR,FRACTION}
 
 abstract type AbstractVolumeSolver end
 struct VolumeBisection <: AbstractVolumeSolver 

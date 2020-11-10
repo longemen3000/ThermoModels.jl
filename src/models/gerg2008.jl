@@ -57,7 +57,7 @@ struct GERG2008{T} <: HelmholtzModel
 end
 function GERG2008(xsel = collect(1:21))
     if length(xsel) == 1
-        _type = SingleComponent()
+        _type = SINGLE()
     else
         _type = MaterialCompounds{MOLAR,FRACTION}()
     end
@@ -2113,7 +2113,7 @@ end
 
 
 
-function _f0(model::GERG2008{U}, rho, T, x) where U<:MaterialCompounds
+function _f0(model::GERG2008{MULTI}, rho, T, x)
 
 
     RR = 8.314472 / 8.314510
@@ -2194,7 +2194,7 @@ function _f0(model::GERG2008{U}, rho, T, x) where U<:MaterialCompounds
     return res
 end
 
-function _f0(model::GERG2008{SingleComponent}, rho, T)
+function _f0(model::GERG2008{SINGLE}, rho, T)
 
 
     RR = 8.314472 / 8.314510
@@ -2255,7 +2255,7 @@ end
 
 _gerg_asymetric_mix_rule(xi, xj, b) = b * (xi + xj) / (xi * b^2 + xj)
 
-function mol_volume(mixmodel::MixRule{GERG2008{TT},X},::CriticalPoint,unit=u"m^3/mol") where {TT<:MaterialCompounds,X}
+function mol_volume(mixmodel::MixRule{GERG2008{MULTI},X},::CriticalPoint,unit=u"m^3/mol") where X
     x = mol_fraction(mixmodel) 
     model = thermomodel(mixmodel)
     vc = mixing_rule_asymetric(
@@ -2269,13 +2269,13 @@ function mol_volume(mixmodel::MixRule{GERG2008{TT},X},::CriticalPoint,unit=u"m^3
     return convert_unit(u"m^3/mol",unit,vc)
 end 
 
-function _delta(model::GERG2008{TT}, rho, T, x) where TT<:MaterialCompounds
+function _delta(model::GERG2008{MULTI}, rho, T, x)
     vcmix = mol_volume(MixRule(model,x),CriticalPoint())
     return rho * vcmix
 end
 
 #==
-function _tau(model::GERG2008{TT}, rho, T, x) where TT<:MaterialCompounds
+function _tau(model::GERG2008{MULTI}, rho, T, x)
     Tr = mixing_rule_asymetric(
         geometric_mean_rule,
         _gerg_asymetric_mix_rule,
@@ -2288,12 +2288,12 @@ function _tau(model::GERG2008{TT}, rho, T, x) where TT<:MaterialCompounds
 end
 ==#
 
-function _tau(model::GERG2008{TT}, rho, T, x) where TT<:MaterialCompounds
+function _tau(model::GERG2008{MULTI}, rho, T, x)
     Tcmix = temperature(MixRule(model,x),CriticalPoint())
     return Tcmix / T
 end
 
-function temperature(mixmodel::MixRule{GERG2008{TT},X},::CriticalPoint,unit=u"K") where {TT<:MaterialCompounds,X}
+function temperature(mixmodel::MixRule{GERG2008{MULTI},X},::CriticalPoint,unit=u"K") where {X}
     x = mol_fraction(mixmodel) 
     model = thermomodel(mixmodel)
     Tcmix = mixing_rule_asymetric(
@@ -2308,12 +2308,12 @@ function temperature(mixmodel::MixRule{GERG2008{TT},X},::CriticalPoint,unit=u"K"
 end 
 
 
-function _delta(model::GERG2008{SingleComponent}, rho, T)
+function _delta(model::GERG2008{SINGLE}, rho, T)
     rhor = inv(only(model.criticalVolume))
     return rho / rhor
 end
 
-function _tau(model::GERG2008{SingleComponent}, rho, T)
+function _tau(model::GERG2008{SINGLE}, rho, T)
     Tr = only(model.criticalTemperature)
     return Tr / T
 end
@@ -2321,7 +2321,7 @@ end
 
 
 
-function _fr1(model::GERG2008{SingleComponent}, delta, tau) 
+function _fr1(model::GERG2008{SINGLE}, delta, tau) 
     common_type = promote_type(typeof(delta), typeof(tau))
     res = zero(common_type)
     res0 = zero(common_type)
@@ -2345,7 +2345,7 @@ function _fr1(model::GERG2008{SingleComponent}, delta, tau)
     return res
 end
 
-function _fr1(model::GERG2008{U}, delta, tau,x) where U<:MaterialCompounds
+function _fr1(model::GERG2008{MULTI}, delta, tau,x)
     common_type = promote_type(typeof(delta), typeof(tau), eltype(x))
     res = zero(common_type)
     res0 = zero(common_type)
@@ -2376,7 +2376,7 @@ end
 
 
 
-function _fr2(model::GERG2008{TT}, delta, tau, x) where TT <: MaterialCompounds
+function _fr2(model::GERG2008{MULTI}, delta, tau, x)
     common_type = promote_type(typeof(delta), typeof(tau), eltype(x))
     res = zero(common_type)
     res0 = zero(common_type)
@@ -2415,19 +2415,19 @@ end
 
 
 
-@inline function mol_helmholtz0_impl(mt::MultiVT,model::GERG2008{TT}, v, T, x) where TT <: MaterialCompounds
+@inline function mol_helmholtz0_impl(mt::MultiVT,model::GERG2008{MULTI}, v, T, x)
     rho = 1.0e-3 / v
     R = RGAS
     return R * T * _f0(model, rho, T, x)
 end
 
-@inline function mol_helmholtz0_impl(mt::SingleVT,model::GERG2008{SingleComponent}, v, T)
+@inline function mol_helmholtz0_impl(mt::SingleVT,model::GERG2008{SINGLE}, v, T)
     rho = 1.0e-3 / v
     R = RGAS
     return R * T * _f0(model, rho, T)
 end
 
-@inline function αR_impl(mt::MultiVT,model::GERG2008{TT}, _rho, T, x) where TT<: MaterialCompounds
+@inline function αR_impl(mt::MultiVT,model::GERG2008{MULTI}, _rho, T, x)
     rho = 1.0e-3 * _rho
     R = RGAS
     delta = _delta(model, rho, T, x)
@@ -2435,7 +2435,7 @@ end
     return _fr1(model, delta, tau, x) + _fr2(model, delta, tau, x)
 end
 
-@inline function αR_impl(mt::SingleVT,model::GERG2008{SingleComponent}, _rho, T)
+@inline function αR_impl(mt::SingleVT,model::GERG2008{SINGLE}, _rho, T)
     rho = 1.0e-3 * _rho
     R = RGAS
     delta = _delta(model, rho, T)
@@ -2444,7 +2444,7 @@ end
 end
 
 
-@inline function mol_helmholtzR_impl(mt::MultiVT,model::GERG2008{TT}, v, T, x) where TT<: MaterialCompounds
+@inline function mol_helmholtzR_impl(mt::MultiVT,model::GERG2008{MULTI}, v, T, x)
     rho = 1.0e-3 / v
     R = RGAS
     delta = _delta(model, rho, T, x)
@@ -2452,7 +2452,7 @@ end
     return R * T * (_fr1(model, delta, tau, x) + _fr2(model, delta, tau, x))
 end
 
-@inline function mol_helmholtzR_impl(mt::SingleVT,model::GERG2008{SingleComponent}, v, T)
+@inline function mol_helmholtzR_impl(mt::SingleVT,model::GERG2008{SINGLE}, v, T)
     rho = 1.0e-3 / v
     R = RGAS
     delta = _delta(model, rho, T)
@@ -2461,7 +2461,7 @@ end
 end
 
 
-@inline function mol_helmholtz_impl(mt::MultiVT,model::GERG2008{TT}, v, T, x) where TT <: MaterialCompounds
+@inline function mol_helmholtz_impl(mt::MultiVT,model::GERG2008{MULTI}, v, T, x)
     rho = 1.0e-3 / v
     R = RGAS
     delta = _delta(model, rho, T, x)
@@ -2476,7 +2476,7 @@ end
 end
 
 
-@inline function mol_helmholtz_impl(mt::SingleVT,model::GERG2008{SingleComponent}, v, T)
+@inline function mol_helmholtz_impl(mt::SingleVT,model::GERG2008{SINGLE}, v, T)
     rho = 1.0e-3 / v
     R = RGAS
     delta = _delta(model, rho, T)
@@ -2491,47 +2491,47 @@ end
 
 
 
-molecular_weight(model::GERG2008{TT where TT <:MaterialCompounds}) = model.molecularWeight
-molecular_weight(model::GERG2008{SingleComponent}) = only(model.molecularWeight)
+molecular_weight(model::GERG2008{MULTI}) = model.molecularWeight
+molecular_weight(model::GERG2008{SINGLE}) = only(model.molecularWeight)
 
 
 
 #critical, single component:
-mol_density(model::GERG2008{SingleComponent},::CriticalPoint,unit=u"mol/(m^3)") = convert_unit(u"mol/L",unit,only(model.criticalDensity))
-pressure(model::GERG2008{SingleComponent},::CriticalPoint,unit=u"Pa") = convert_unit(u"Pa",unit,only(model.criticalPressure))
-temperature(model::GERG2008{SingleComponent},::CriticalPoint,unit=u"K") = convert_unit(u"K",unit,only(model.criticalTemperature))
-mol_volume(model::GERG2008{SingleComponent},::CriticalPoint,unit=u"m^3/mol") = convert_unit(u"m^3/mol",unit,only(model.criticalVolume))
-acentric_factor(model::GERG2008{SingleComponent}) = only(model.acentric_factor)
+mol_density(model::GERG2008{SINGLE},::CriticalPoint,unit=u"mol/(m^3)") = convert_unit(u"mol/L",unit,only(model.criticalDensity))
+pressure(model::GERG2008{SINGLE},::CriticalPoint,unit=u"Pa") = convert_unit(u"Pa",unit,only(model.criticalPressure))
+temperature(model::GERG2008{SINGLE},::CriticalPoint,unit=u"K") = convert_unit(u"K",unit,only(model.criticalTemperature))
+mol_volume(model::GERG2008{SINGLE},::CriticalPoint,unit=u"m^3/mol") = convert_unit(u"m^3/mol",unit,only(model.criticalVolume))
+acentric_factor(model::GERG2008{SINGLE}) = only(model.acentric_factor)
 
 #critical, multi component:
 
-function mol_density(model::GERG2008{TT},::CriticalPoint,unit=u"mol/(m^3)")  where TT <:MaterialCompounds
+function mol_density(model::GERG2008{MULTI},::CriticalPoint,unit=u"mol/(m^3)")
     return convert_unit.(u"mol/L",unit,model.criticalDensity)
 end
 
-function pressure(model::GERG2008{TT},::CriticalPoint,unit=u"Pa")  where TT <:MaterialCompounds
+function pressure(model::GERG2008{MULTI},::CriticalPoint,unit=u"Pa")
     return convert_unit.(u"Pa",unit,model.criticalPressure)
 end
 
-function temperature(model::GERG2008{TT},::CriticalPoint,unit=u"K")  where TT <:MaterialCompounds
+function temperature(model::GERG2008{MULTI},::CriticalPoint,unit=u"K")
     return convert_unit.(u"K",unit,model.criticalTemperature)
 end
 
-function mol_volume(model::GERG2008{TT},::CriticalPoint,unit=u"m^3/mol")  where TT <:MaterialCompounds
+function mol_volume(model::GERG2008{MULTI},::CriticalPoint,unit=u"m^3/mol")
     return convert_unit.(u"m^3/mol",unit,model.criticalVolume)
 end
 
-function acentric_factor(model::GERG2008{TT})  where TT <:MaterialCompounds
+function acentric_factor(model::GERG2008{MULTI})
     return model.acentric_factor
 end
 
 
     
 
-single_sat_aprox(model::GERG2008{SingleComponent}) = LeeKesler(model)
+single_sat_aprox(model::GERG2008{SINGLE}) = LeeKesler(model)
 volume_solver_type(model::GERG2008) = SUVA()
 
-function Base.show(io::IO, sp::GERG2008{TT}) where TT <:MaterialCompounds
+function Base.show(io::IO, sp::GERG2008{MULTI})
     ln = length(sp.syms)
     println(io,ln,"-element GERG008 helmholtz model, with compounds:")
     for i in 1:ln-1
@@ -2540,10 +2540,10 @@ function Base.show(io::IO, sp::GERG2008{TT}) where TT <:MaterialCompounds
     print(io," n",unicode_subscript(ln)," : ",sp.syms[ln])
 end
 
-function Base.show(io::IO, sp::GERG2008{SingleComponent})
+function Base.show(io::IO, sp::GERG2008{SINGLE})
     compound = only(sp.syms)
     print(io,"GERG008 helmholtz model for ",compound)
 end
 
-
+export GERG2008
  

@@ -205,78 +205,20 @@ function nan_to_num(xi)
     end
 end
 
-function remove_minimums!!(x,minval=zero(eltype(x)))
-    return @! x .= max.(x,minval)
+function remove_minimums!!(x,lo=zero(eltype(x)))
+    return @! x .= max.(x,lo)
 end
 
-function gdem(X, X1, X2, X3)
-    dX2 = X - X3
-    dX1 = X - X2
-    dX = X - X1
-    b01 = dot(dX1,dX)
-    b02 = dot(dX2,dX)
-    b12 = dot(dX2,dX1)
-    b11 = dot(dX1,dX1)
-    b22 = dot(dX2,dX2)
-    den = b11*b22-abs2(b12)
-    mu1 = (b02*b12 - b01*b22)/den
-    mu2 = (b01*b12 - b02*b11)/den
-    dacc = (dX - mu2*dX1)/(1+mu1+mu2)
-    return nan_to_num(dacc)
+function remove_maximums!!(x,hi=inv(eps(eltype(x))))
+    return @! x .= min.(x,hi)
 end
 
-"""
-    cardan(p::NTuple{4,<:AbstractFloat})::NTuple{3,Complex{T}}
-
-solves a cubic polynomial of the form p₁ + p₂x + p₃x² + p₄x³ == 0 
-
-Return a 3-tuple with the solutions.
-
-# Examples
-
-```julia
-julia> cardan((0.,-1.,0.,1.)) # x³ - x = 0
-(1.0 - 3.700743415417188e-17im, -1.850371707708594e-16 + 1.4802973661668753e-16im, -1.0 - 3.700743415417188e-17im)
-```
-"""
-function cardan(poly::NTuple{4,T}) where {T<:AbstractFloat}
-    # Cubic equation solver for complex polynomial (degree=3)
-    # http://en.wikipedia.org/wiki/Cubic_function   Lagrange's method
-    third = T(1//3)
-    _1 = T(1.0)
-    a1  =  complex(_1/poly[4])
-    E1  = -complex(poly[3])*a1
-    E2  =  complex(poly[2])*a1
-    E3  = -complex(poly[1])*a1
-    s0  =  E1
-    E12 =  E1*E1
-    A   =  2*E1*E12 - 9*E1*E2 + 27*E3 # = s1^3 + s2^3
-    B   =  E12 - 3*E2                 # = s1 s2
-    # quadratic equation: z^2 - Az + B^3=0  where roots are equal to s1^3 and s2^3
-    Δ = sqrt(A*A - 4*B*B*B)
-    if real(conj(A)*Δ)>=0 # scalar product to decide the sign yielding bigger magnitude
-        s1 = exp(log(0.5 * (A + Δ)) * third)
-    else
-        s1 = exp(log(0.5 * (A - Δ)) * third)
-    end
-    if s1 == 0
-        s2 = s1
-    else
-        s2 = B / s1
-    end
-    zeta1 = complex(-0.5, sqrt(T(3.0))*0.5)
-    zeta2 = conj(zeta1)
-    return third*(s0 + s1 + s2), third*(s0 + s1*zeta2 + s2*zeta1), third*(s0 + s1*zeta1 + s2*zeta2)
-end
-
-
-
-function cardan_reals(res::NTuple{3,Complex{T}}) where T
-    nan = T(NaN)
+function cardan_reals(res)
+    nan = real(zero(first(res))/zero(first(res)))
     a1, a2, a3 = res
-    isreal1 = abs(imag(a1) < 16*eps(imag(a1)))
-    isreal2 = abs(imag(a2) < 16*eps(imag(a2)))
-    isreal3 = abs(imag(a3) < 16*eps(imag(a3)))
+    isreal1 = abs(imag(a1) < 4*eps(imag(a1)))
+    isreal2 = abs(imag(a2) < 4*eps(imag(a2)))
+    isreal3 = abs(imag(a3) < 4*eps(imag(a3)))
     r1 = real(a1)
     r2 = real(a2)
     r3 = real(a3)

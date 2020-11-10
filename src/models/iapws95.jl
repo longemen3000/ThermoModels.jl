@@ -157,3 +157,4 @@ temperature(model::IAPWS95,::NormalBoilingPoint,unit=u"K")  = convert_unit(u"K",
 temperature(model::IAPWS95,::TriplePoint,unit=u"K")  = convert_unit(u"K",unit,273.16)
 pressure(model::IAPWS95,::TriplePoint,unit=u"Pa")  = convert_unit(u"Pa",unit,611.657)
 
+export IAPWS95

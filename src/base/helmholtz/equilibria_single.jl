@@ -104,7 +104,7 @@ function flash_impl(mt::SingleSatT,model::HelmholtzModel, _t)
         p1 = _p(v1)
         p2 = _p(v2)
         px = p_pred
-        A(z) = fugacity_coeff_impl(QuickStates.vt(),model, z, t)
+        ϕ(z) = fugacity_coeff_impl(QuickStates.vt(),model, z, t)
         v1old = 0
         v2old = 0
         for i = 1:20
@@ -126,7 +126,7 @@ function flash_impl(mt::SingleSatT,model::HelmholtzModel, _t)
                 break
             end
             pold = px
-            px = px*exp(A(v1)-A(v2))
+            px = px*exp(ϕ(v1)-ϕ(v2))
             #px = (A(v1) - A(v2)) / (v2 - v1)
             #@show px
             if abs(pold - px) < 1e-10 * px

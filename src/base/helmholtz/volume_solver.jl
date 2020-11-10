@@ -1,5 +1,9 @@
 #returns a mol volume from P and T
-function v_zero(mt,model,args...;kwargs...)
+function v_zero(mt::SinglePT,model,args...;kwargs...)
+    return v_zero(volume_solver_type(model),mt,model,args...;kwargs...)
+end
+
+function v_zero(mt::MultiPT,model,args...;kwargs...)
     return v_zero(volume_solver_type(model),mt,model,args...;kwargs...)
 end
 
@@ -129,7 +133,7 @@ function v_zeros(vmethod::VolumeBisection
         (max_v > typemax(max_v)*0.125) && break
     end
 
-    vv = find_zeros(fp, eps(typeof(max_v)), max_v, no_pts = no_pts)
+    vv = Roots.find_zeros(fp, eps(typeof(max_v)), max_v, no_pts = no_pts)
     return (first(vv),last(vv))
 end
 
@@ -152,7 +156,7 @@ function v_zeros(vmethod::VolumeBisection,
         (max_v > typemax(max_v)*0.125) && break
     end
  
-    vv = find_zeros(fp, eps(typeof(max_v)), max_v, no_pts = no_pts)
+    vv = Roots.find_zeros(fp, eps(typeof(max_v)), max_v, no_pts = no_pts)
     v1 = first(vv)
     v2 = last(vv)
     #v1 =  Roots.find_zero(fp,first(vv))
@@ -248,6 +252,24 @@ end
 function v_zero_general(mt::MultiPT,model,p,t,x)
     _vt = QuickStates.vtx()
     _g(_v) = mol_gibbs_impl(_vt,model,_v,t,x)
+    _p(_v) = pressure_impl(_vt,model,_v,t,x)  
+    
+    v1,v2 = v_zeros(mt,model,p,t,x)
+    #(v1 == v2) && return v1
+    g1 = _g(v1)
+    g2 = _g(v2)
+    if g1 < g2
+        return v1
+    elseif g2 < g1
+        return v2
+    else #different volumes, but equal energies, equilibria conditions
+        return v2
+    end
+end
+
+function v_zero_general(mt::MultiPT,model::CubicModel,p,t,x)
+    _vt = QuickStates.vtx()
+    _g(_v) = αR_impl(_vt,model,_v,t,x) - p*_v/(RGAS*t)
     _p(_v) = pressure_impl(_vt,model,_v,t,x)  
     
     v1,v2 = v_zeros(mt,model,p,t,x)
@@ -444,3 +466,60 @@ v> v - b> RT/P
 b< v-RT/P 
 
 =#
+
+
+function v_zeros(::CubicRoots,mt::MultiPT,model,p,t,x;phase=:unspecified)
+    _poly = cubic_poly(mt,model,p,t,x)
+    poly = Polynomials.ImmutablePolynomial(_poly)
+    sols = Polynomials.roots(poly)
+    real_sols = cardan_reals(sols)
+    RTp = RGAS*t/p
+    vl = minimum(real_sols)*RTp
+    vv = maximum(real_sols)*RTp
+    if isnan(vl) & !isnan(vv)
+        return (vv,vv)
+    elseif isnan(vv) & !isnan(vl)
+        return (vl,vl)
+    else
+        return (vl,vv)
+    end
+end
+
+function v_zeros(::CubicRoots,mt::SinglePT,model,p,t;phase=:unspecified)
+    _poly = cubic_poly(mt,model,p,t)
+    poly = Polynomials.ImmutablePolynomial(_poly)
+    sols = Polynomials.roots(poly)
+    real_sols = cardan_reals(sols)
+    RTp = RGAS*t/p
+    vl = minimum(real_sols)*RTp
+    vv = maximum(real_sols)*RTp
+    if isnan(vl) & !isnan(vv)
+        return (vv,vv)
+    elseif isnan(vv) & !isnan(vl)
+        return (vl,vl)
+    else
+        return (vl,vv)
+    end
+end
+
+function v_zero(method::CubicRoots,mt::MultiPT,model,p,t,x,v0=nothing;phase=:unspecified)
+    vols = v_zeros(method,mt,model,p,t,x)
+    if is_liquid(phase)
+        return first(vols)
+    elseif is_gas(phase)
+        return last(vols)
+    else
+        return v_zero_general(mt,model,p,t,x)
+    end
+end
+
+function v_zero(method::CubicRoots,mt::SinglePT,model,p,t,v0=nothing;phase=:unspecified)
+    vols = v_zeros(method,mt,model,p,t)
+    if is_liquid(phase)
+        return first(vols)
+    elseif is_gas(phase)
+        return last(vols)
+    else
+        return v_zero_general(mt,model,p,t)
+    end
+end

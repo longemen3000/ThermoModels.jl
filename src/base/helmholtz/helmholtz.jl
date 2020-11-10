@@ -14,9 +14,19 @@ function ∂a∂v(mt::SingleVT,model::HelmholtzModel,v,t)
     #return ForwardDiff.derivative(dv->mol_helmholtzR_impl(mt,model,dv,t),v) -RGAS*t/v
 end
 
-function ∂a∂v(mt::MT,model::T,v,t,x) where {MT<:MultiVT,T <: HelmholtzModel}
+function ∂a∂v(mt::MultiVT,model::HelmholtzModel,v,t,x)
     return ForwardDiff.derivative(dv->mol_helmholtz_impl(mt,model,dv,t,x),v)
 end
+
+function ∂²a∂v²(mt::SingleVT,model::HelmholtzModel,v,t)
+    return ForwardDiff.derivative(dv->∂a∂v(mt,model,dv,t),v)
+    #return ForwardDiff.derivative(dv->mol_helmholtzR_impl(mt,model,dv,t),v) -RGAS*t/v
+end
+
+function ∂²a∂v²(mt::MultiVT,model::HelmholtzModel,v,t,x)
+    return ForwardDiff.derivative(dv->∂a∂v(mt,model,dv,t,x),v)
+end
+
 
 function ∂a∂t(mt::SingleVT,model::HelmholtzModel,v,t)
     return ForwardDiff.derivative(dt->mol_helmholtz_impl(mt,model,v,dt),t)
@@ -59,13 +69,12 @@ function pressure_impl(mt::SingleVT,model::T,v,t) where T<: HelmholtzModel
     rho = one(v)/v
     dαdrho = ForwardDiff.derivative(drho->αR_impl(mt,model,drho,t),inv(v))
     return rho*(one(rho)+rho*dαdrho)*RGAS*t
-
 end
 
 function pressure_impl(mt::MultiVT,model::T,v,t,x) where T<: HelmholtzModel
-    rho = one(v)/v
-    dαdrho = ForwardDiff.derivative(drho->αR_impl(mt,model,drho,t,x),inv(v))
-    return rho*(one(rho)+rho*dαdrho)*RGAS*t
+    ρ = one(v)/v
+    dαdρ = ForwardDiff.derivative(∂ρ->αR_impl(mt,model,∂ρ,t,x),inv(v))
+    return ρ*(one(ρ)+ρ*dαdρ)*RGAS*t
 end
 
 function compressibility_factor_impl(mt::SingleVT,model::HelmholtzModel,v,t)
@@ -178,49 +187,54 @@ function ∂p∂v(mt::SingleVT,model::HelmholtzModel,v,t)
 return ForwardDiff.derivative(z->pressure_impl(mt,model,z,t),v)
 end
 
+
 function mol_isochoric_heat_capacity_impl(mt::SingleVT,model::HelmholtzModel,v,t)
-    val_∂2a = ∂2∂a2(mt,model,v,t)
-    return -t*val_∂2a[2,2]
+    ∂2a = ∂2∂a2(mt,model,v,t)
+    return -t*∂2a[2,2]
 end
 
 function mol_isochoric_heat_capacity_impl(mt::MultiVT,model::HelmholtzModel,v,t,x)
-    val_∂2a = ∂2∂a2(mt,model,v,t,x)
-    return -t*val_∂2a[2,2]
+    ∂2a = ∂2∂a2(mt,model,v,t,x)
+    return -t*∂2a[2,2]
 end
 
 function mol_isobaric_heat_capacity_impl(mt::SingleVT,model::HelmholtzModel,v,t)
-    val_∂2a = ∂2∂a2(mt,model,v,t)
-    return -v*val_∂2a[1,2]-t*val_∂2a[2,2]  
+    ∂2a = ∂2∂a2(mt,model,v,t)
+    return t*(∂2a[1,2]^2/∂2a[1]-∂2a[2,2])
 end
 
 function mol_isobaric_heat_capacity_impl(mt::MultiVT,model::HelmholtzModel,v,t,x)
-    val_∂2a = ∂2∂a2(mt,model,v,t,x)
-    return -v*val_∂2a[1,2]-t*val_∂2a[2,2]  
+    ∂2a = ∂2∂a2(mt,model,v,t,x)
+    return t*(∂2a[1,2]^2/∂2a[1]-∂2a[2,2])
 end
 
 function sound_speed_impl(mt::SingleVT,model::HelmholtzModel,v,t)
-    val_∂2a = ∂2∂a2(mt,model,v,t)
-    cv =  -t*val_∂2a[2,2]
-    cp = -v*val_∂2a[1,2]-t*val_∂2a[2,2] 
-    ∂p∂v = val_∂2a[1,1]
-    MW = molecular_weight(model)
+    ∂2a = ∂2∂a2(mt,model,v,t)
+    Mr = molecular_weight(model)
     z = ThermoState.mw_div(one(MW),MW)
-    return v*sqrt(-z*∂p∂v*cp/cv)
+    return v*sqrt((∂2a[1]-∂2a[1,2]^2/∂2a[2,2])/Mr)
 end
 
 
 function sound_speed_impl(mt::MultiVT,model::HelmholtzModel,v,t,x)
-    val_∂2a = ∂2∂a2(mt,model,v,t,x)
-    cv =  -t*val_∂2a[2,2]
-    cp = -v*val_∂2a[1,2]-t*val_∂2a[2,2] 
-    ∂p∂v = val_∂2a[1,1]
+    ∂2a = ∂2∂a2(mt,model,v,t,x)
     _MW = molecular_weight(model)
-    MW = mapreduce(ThermoState.mw_mul,+,x,_MW)
-    z = ThermoState.mw_div(one(MW),MW)
-    return v*sqrt(-z*∂p∂v*cp/cv)
+    Mr = mapreduce(ThermoState.mw_mul,+,x,_MW)
+    return v*sqrt((∂2a[1]-∂2a[1,2]^2/∂2a[2,2])/Mr)
 end
 
-function ThermoState.pressure(model::HelmholtzModel,st::ThermodynamicState,unit = u"Pa")
+
+function isothermal_compressibility_impl(mt::SingleVT,model::HelmholtzModel,v,t)
+    d2f = ∂²a∂v²(mt,model,v,t)
+    return 1/v*d2f^-1
+end
+
+function isothermal_compressibility_impl(mt::MultiVT,model::HelmholtzModel,v,t,x)
+    d2f = ∂²a∂v²(mt,model,v,t,x)
+    return 1/v*d2f^-1
+end
+
+function pressure(model::HelmholtzModel,st::ThermodynamicState,unit = u"Pa")
     return pressure(state_type(st),model,st,unit)
 end
 
@@ -374,7 +388,7 @@ function mol_volume(mt::SinglePT,model::HelmholtzModel,st::ThermodynamicState,un
     p = pressure(FromState(),st)
     t = temperature(FromState(),st)
     phase = ThermoState.phase(FromState(),st)
-    v = v_zero(mt,model,p,t,phase=phase)           
+    v = v_zero(volume_solver_type(model),mt,model,p,t,phase=phase)           
     return convert_unit(u"m^3/mol",unit,v)
 end
 
@@ -385,7 +399,7 @@ function mol_volume(mt::MultiPT,model::HelmholtzModel,st::ThermodynamicState,uni
     t = temperature(FromState(),st)
     x = mol_fraction(FromState(),st,nothing,mw)
     phase = ThermoState.phase(FromState(),st)
-    v = v_zero(mt,model,p,t,x,phase=phase)           
+    v = v_zero(volume_solver_type(model),mt,model,p,t,x,phase=phase)           
     return convert_unit(u"m^3/mol",unit,v)
 end
 
@@ -417,5 +431,21 @@ function mass_density(model::HelmholtzModel,st::ThermodynamicState,unit =u"kg/(m
     return convert_unit(u"kg/(m^3)",unit,res)
 end
 
-#function compressibility_factor(model::HelmholtzModel,st::ThermodynamicState)
-#    return 
+function compressibility_factor(model::HelmholtzModel,st::ThermodynamicState)
+    return compressibility_factor(state_type(st),model,st)
+end
+
+function compressibility_factor(mt::SingleVT,model::HelmholtzModel,st::ThermodynamicState)
+    v =mol_volume(FromState(),st)
+    t = temperature(FromState(),st)
+    p = pressure_impl(mt,model,v,t)
+    return p*v/(RGAS*t)
+end
+
+function compressibility_factor(mt::MultiVT,model::HelmholtzModel,st::ThermodynamicState)
+    v =mol_volume(FromState(),st)
+    t = temperature(FromState(),st)
+    x = mol_fraction(FromState(),st)
+    p = pressure_impl(mt,model,v,t,x)
+    return p*v/(RGAS*t)
+end

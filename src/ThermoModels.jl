@@ -24,24 +24,33 @@ import ThermoState: molecular_weight
 using StaticArrays
 using DiffResults
 using ForwardDiff
+
+#units
 using Unitful
 using Unitful: @u_str
 
+#for cubic solvers
+import Polynomials
+
 import Roots
-using Roots: find_zeros
 using Roots: find_zero
 
+#for pt-flash
 import NLSolversBase
 using NLSolversBase: only_fg!,OnceDifferentiable
+
+import Optim
+using Optim: optimize
+
 
 import LinearAlgebra
 using LinearAlgebra: dot,norm
 
+#to support static arrays correctly
 import BangBang
 using BangBang: @!
 
-import Optim
-using Optim: optimize
+
 # Write your package code here.
 include("base/utils.jl")
 include("base/suva.jl")
@@ -61,18 +70,20 @@ include("base/helmholtz/volume_solver.jl")
 include("base/helmholtz/equilibria_single.jl")
 include("base/helmholtz/equilibria_pt.jl")
 
-include("models/cubic.jl")
 
-
+#each model file exports its own model
 include("models/iapws95.jl")
 include("models/gerg2008.jl")
-include("models/lennon2000air.jl")
+include("models/cubic/cubics.jl")
+
+#include("models/lennon2000air.jl")
 
 
-
+export VanDerWaals, RedlichKwong
 export IAPWS95, GERG2008
 export Saturation 
 export equilibria,kvalues
+export compressibility_factor, acentric_factor
 export fugacity_coeff_impl,kvalues,flash_impl,normalizefrac!!
 
 end
