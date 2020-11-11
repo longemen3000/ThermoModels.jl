@@ -143,7 +143,6 @@ function  αR_impl(mt::MultiVT,model::PengRobinson{MULTI},rho,t,x)
     RTinv = 1/(RGAS*t)
     v = inv(rho)
     a,b,p =  cubic_abp(mt,model,v,t,x)
-    Ψ
     -log(1-b*rho) - a*RTinv*log((PRΔ1*b*rho+1)/(PRΔ2*b*rho+1))/(ΔPRΔ*b)
 end
 
@@ -163,6 +162,8 @@ end
 function cubic_poly(mt::MultiPT,model::PengRobinson{MULTI},p,t,x)
     a,b = cubic_ab(QuickStates.ptx(),model,p,t,x)
     RTinv = 1/(RGAS*t)
+    A = a*p*RTinv*RTinv
+    B = b*p*RTinv
     k0 = B*(B*(B+1.0)-A)
     k1 = -B*(2*B+1.0) + A
     k2 = -1.0
