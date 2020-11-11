@@ -77,7 +77,13 @@ include("models/gerg2008.jl")
 include("models/cubic/cubics.jl")
 
 #include("models/lennon2000air.jl")
+module Saturation
+    import ..ThermoModels: Antoine, LeeKesler,Edalat,Sanjari,WaterSat
+    import ..ThermoModels: VdWSatApprox, RKSatApprox, PRSatApprox
 
+    export Antoine, LeeKesler,Edalat,Sanjari,WaterSat
+    export VdWSatApprox,RKSatApprox,PRSatApprox
+end
 
 export VanDerWaals, RedlichKwong
 export IAPWS95, GERG2008

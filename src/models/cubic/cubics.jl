@@ -4,10 +4,10 @@ include("rks.jl")
 include("pr.jl")
 const VdW = VanDerWaals
 const RK = RedlichKwong
-const RKS = RedlichKwongSoave
 const PR = PengRobinson
+const SRK = SoaveRedlichKwong
 
 export VdW
 export RK
-export RKS
+export SRK
 export PR

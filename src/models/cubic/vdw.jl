@@ -27,7 +27,7 @@ struct VanDerWaals{S,T,A} <: CubicModel
 end
 
 volume_solver_type(model::VanDerWaals) = CubicRoots()
-single_sat_aprox(model::VanDerWaals{SINGLE}) =VDWSatAprox(model)
+single_sat_Approx(model::VanDerWaals{SINGLE}) =VdWSatApprox(model)
 mol_density(model::VanDerWaals{SINGLE},::CriticalPoint,unit=u"mol/(m^3)") = convert_unit(u"mol/L",unit,inv(only(model.vc)))
 pressure(model::VanDerWaals{SINGLE},::CriticalPoint,unit=u"Pa") = convert_unit(u"Pa",unit,only(model.pc))
 temperature(model::VanDerWaals{SINGLE},::CriticalPoint,unit=u"K") = convert_unit(u"K",unit,only(model.tc))
@@ -140,25 +140,25 @@ end
 
 
 
-struct VDWSatAprox{M} <: SaturationModel
+struct VdWSatApprox{M} <: SaturationModel
     model::M
-    function VDWSatAprox(model::CubicModel)
+    function VdWSatApprox(model::CubicModel)
         T = typeof(model)
         return new{T}(model)
     end
 end
 
-function VDWSatAprox(tc,pc,mw=copy(pc),vc=nothing,ω=nothing,aij = nothing)
+function VdWSatApprox(tc,pc,mw=copy(pc),vc=nothing,ω=nothing,aij = nothing)
     model = VanDerWaals(tc,pc,mw,vc,ω,aij)
-    return VDWSatAprox(model)
+    return VdWSatApprox(model)
 end
 
-function VDWSatAprox(;tc,pc,mw=copy(pc),vc=nothing,ω=nothing,aij=nothing)
+function VdWSatApprox(;tc,pc,mw=copy(pc),vc=nothing,ω=nothing,aij=nothing)
     model =  VanDerWaals(tc,pc,mw,vc,ω,aij)
-    return VDWSatAprox(model)
+    return VdWSatApprox(model)
 end
 
-function pressure_impl(mt::SingleSatT,model::VDWSatAprox,t)
+function pressure_impl(mt::SingleSatT,model::VdWSatApprox,t)
     a = 4.406664258927600 
     b = 2.205610041969020 
     c = 0.243757663628277 
@@ -175,4 +175,4 @@ function pressure_impl(mt::SingleSatT,model::VDWSatAprox,t)
     p = pr*pc
 end
 
-initial_temperature(model::VDWSatAprox,p) = critical_sat_interpolation(model,p)
+initial_temperature(model::VdWSatApprox,p) = critical_sat_interpolation(model,p)

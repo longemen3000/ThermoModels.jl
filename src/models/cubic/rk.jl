@@ -27,7 +27,7 @@ struct RedlichKwong{S,T,A} <: CubicModel
 end
 
 volume_solver_type(model::RedlichKwong) = CubicRoots()
-single_sat_aprox(model::RedlichKwong{SINGLE}) =RKSatAprox(model)
+single_sat_Approx(model::RedlichKwong{SINGLE}) =RKSatApprox(model)
 mol_density(model::RedlichKwong{SINGLE},::CriticalPoint,unit=u"mol/(m^3)") = convert_unit(u"mol/L",unit,inv(only(model.vc)))
 pressure(model::RedlichKwong{SINGLE},::CriticalPoint,unit=u"Pa") = convert_unit(u"Pa",unit,only(model.pc))
 temperature(model::RedlichKwong{SINGLE},::CriticalPoint,unit=u"K") = convert_unit(u"K",unit,only(model.tc))
@@ -155,25 +155,25 @@ function cubic_poly(mt::MultiPT,model::RedlichKwong{MULTI},p,t,x)
 end
 
 
-struct RKSatAprox{M} <: SaturationModel
+struct RKSatApprox{M} <: SaturationModel
     model::M
-    function RKSatAprox(model::CubicModel)
+    function RKSatApprox(model::CubicModel)
         T = typeof(model)
         return new{T}(model)
     end
 end
 
-function RKSatAprox(tc,pc,mw=copy(pc),vc=nothing,ω=nothing,aij = nothing)
+function RKSatApprox(tc,pc,mw=copy(pc),vc=nothing,ω=nothing,aij = nothing)
     model = RedlichKwong(tc,pc,mw,vc,ω,aij)
-    return RKSatAprox(model)
+    return RKSatApprox(model)
 end
 
-function RKSatAprox(;tc,pc,mw=copy(pc),vc=nothing,ω=nothing,aij=nothing)
+function RKSatApprox(;tc,pc,mw=copy(pc),vc=nothing,ω=nothing,aij=nothing)
     model =  RedlichKwong(tc,pc,mw,vc,ω,aij)
-    return RKSatAprox(model)
+    return RKSatApprox(model)
 end
 
-function pressure_impl(mt::SingleSatT,model::RKSatAprox,t)
+function pressure_impl(mt::SingleSatT,model::RKSatApprox,t)
     a = 4.869351869381000
     b = 2.783631394064670
     c = 1.106187857326840
@@ -190,4 +190,4 @@ function pressure_impl(mt::SingleSatT,model::RKSatAprox,t)
     p = pr*pc
 end
 
-initial_temperature(model::RKSatAprox,p) = critical_sat_interpolation(model,p)
+initial_temperature(model::RKSatApprox,p) = critical_sat_interpolation(model,p)

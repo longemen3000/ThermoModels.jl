@@ -1,4 +1,4 @@
-struct RedlichKwongSoave{S,T,A} <: CubicModel
+struct SoaveRedlichKwong{S,T,A} <: CubicModel
     type::S
     tc::T
     pc::T
@@ -9,7 +9,7 @@ struct RedlichKwongSoave{S,T,A} <: CubicModel
     _b::T
     aij::A
 
-    function RedlichKwongSoave(tc,pc,ω,mw,vc=nothing,aij = nothing)
+    function SoaveRedlichKwong(tc,pc,ω,mw,vc=nothing,aij = nothing)
         if length(tc) == 1
             type = SINGLE()
 
@@ -26,49 +26,49 @@ struct RedlichKwongSoave{S,T,A} <: CubicModel
     end
 end
 
-volume_solver_type(model::RedlichKwongSoave) = CubicRoots()
-single_sat_aprox(model::RedlichKwongSoave{SINGLE}) =RKSatAprox(model)
-mol_density(model::RedlichKwongSoave{SINGLE},::CriticalPoint,unit=u"mol/(m^3)") = convert_unit(u"mol/L",unit,inv(only(model.vc)))
-pressure(model::RedlichKwongSoave{SINGLE},::CriticalPoint,unit=u"Pa") = convert_unit(u"Pa",unit,only(model.pc))
-temperature(model::RedlichKwongSoave{SINGLE},::CriticalPoint,unit=u"K") = convert_unit(u"K",unit,only(model.tc))
-mol_volume(model::RedlichKwongSoave{SINGLE},::CriticalPoint,unit=u"m^3/mol") = convert_unit(u"m^3/mol",unit,only(model.vc))
-acentric_factor(model::RedlichKwongSoave{SINGLE}) = only(model.ω)
-molecular_weight(model::RedlichKwongSoave{SINGLE}) = only(model.mw)
-molecular_weight(model::RedlichKwongSoave{MULTI}) = model.mw
+volume_solver_type(model::SoaveRedlichKwong) = CubicRoots()
+single_sat_aprox(model::SoaveRedlichKwong{SINGLE}) =RKSatAprox(model)
+mol_density(model::SoaveRedlichKwong{SINGLE},::CriticalPoint,unit=u"mol/(m^3)") = convert_unit(u"mol/L",unit,inv(only(model.vc)))
+pressure(model::SoaveRedlichKwong{SINGLE},::CriticalPoint,unit=u"Pa") = convert_unit(u"Pa",unit,only(model.pc))
+temperature(model::SoaveRedlichKwong{SINGLE},::CriticalPoint,unit=u"K") = convert_unit(u"K",unit,only(model.tc))
+mol_volume(model::SoaveRedlichKwong{SINGLE},::CriticalPoint,unit=u"m^3/mol") = convert_unit(u"m^3/mol",unit,only(model.vc))
+acentric_factor(model::SoaveRedlichKwong{SINGLE}) = only(model.ω)
+molecular_weight(model::SoaveRedlichKwong{SINGLE}) = only(model.mw)
+molecular_weight(model::SoaveRedlichKwong{MULTI}) = model.mw
 
-function mol_density(model::RedlichKwongSoave{MULTI},::CriticalPoint,unit=u"mol/(m^3)")
+function mol_density(model::SoaveRedlichKwong{MULTI},::CriticalPoint,unit=u"mol/(m^3)")
     return convert_unit.(u"mol/L",unit,1 ./ model.vc)
 end
 
-function pressure(model::RedlichKwongSoave{MULTI},::CriticalPoint,unit=u"Pa")
+function pressure(model::SoaveRedlichKwong{MULTI},::CriticalPoint,unit=u"Pa")
     return convert_unit.(u"Pa",unit,model.pc)
 end
 
-function temperature(model::RedlichKwongSoave{MULTI},::CriticalPoint,unit=u"K")
+function temperature(model::SoaveRedlichKwong{MULTI},::CriticalPoint,unit=u"K")
     return convert_unit.(u"K",unit,model.tc)
 end
 
-function mol_volume(model::RedlichKwongSoave{MULTI},::CriticalPoint,unit=u"m^3/mol")
+function mol_volume(model::SoaveRedlichKwong{MULTI},::CriticalPoint,unit=u"m^3/mol")
     return convert_unit.(u"m^3/mol",unit,model.vc)
 end
 
-function acentric_factor(model::RedlichKwongSoave{MULTI})
+function acentric_factor(model::SoaveRedlichKwong{MULTI})
     return model.ω
 end
 
-function RedlichKwongSoave(;tc,pc,ω,mw,vc=nothing,aij=nothing)
-    return RedlichKwongSoave(tc,pc,ω,mw,vc,aij)
+function SoaveRedlichKwong(;tc,pc,ω,mw,vc=nothing,aij=nothing)
+    return SoaveRedlichKwong(tc,pc,ω,mw,vc,aij)
 end
 
-function RedlichKwongSoave(model::ThermoModel)
+function SoaveRedlichKwong(model::ThermoModel)
     tc = temperature(model,CriticalPoint())
     pc = pressure(model,CriticalPoint())
     ω = acentric_factor(model)
     mw = molecular_weight(model)
-    return RedlichKwongSoave(tc,pc,ω,mw)
+    return SoaveRedlichKwong(tc,pc,ω,mw)
 end
 
-function cubic_aα(model::RedlichKwongSoave,t,i,j)
+function cubic_aα(model::SoaveRedlichKwong,t,i,j)
     m_poly = (0.47979, 1.576, 0.1925, 0.025)
     _1 = one(t)
     aᵢ =model._a[i]
@@ -102,7 +102,7 @@ function cubic_aα(model::RedlichKwongSoave,t,i,j)
     end
 end
 
-function cubic_ab(mt::SinglePT,model::RedlichKwongSoave{SINGLE},v,t)
+function cubic_ab(mt::SinglePT,model::SoaveRedlichKwong{SINGLE},v,t)
     a = cubic_aα(model,t,1,1)
     b = only(model._b)
     return a,b
@@ -111,7 +111,7 @@ end
 
 
 
-function cubic_ab(mt::MultiPT,model::RedlichKwongSoave{MULTI},p,t,x)
+function cubic_ab(mt::MultiPT,model::SoaveRedlichKwong{MULTI},p,t,x)
     #two options to introduce alpha:
     #here: it will allocate, but less ops
     bi = model._b
@@ -122,19 +122,19 @@ function cubic_ab(mt::MultiPT,model::RedlichKwongSoave{MULTI},p,t,x)
     return a,b
 end
 
-function cubic_abp(mt::SingleVT,model::RedlichKwongSoave{SINGLE},v,t)
+function cubic_abp(mt::SingleVT,model::SoaveRedlichKwong{SINGLE},v,t)
     a,b = cubic_ab(QuickStates.pt(),model,v,t) #v is ignored
     p = RGAS*t/(v-b) - a/(v*v)
     return a,b,p
 end
 
-function cubic_abp(mt::MultiVT,model::RedlichKwongSoave{MULTI},v,t,x)
+function cubic_abp(mt::MultiVT,model::SoaveRedlichKwong{MULTI},v,t,x)
     a,b = cubic_ab(QuickStates.ptx(),model,v,t,x) #v is ignored
     p =  RGAS*t/(v-b) - a/((v+b)*v)
     return a,b,p
 end
 
-function fugacity_coeff_impl(mt::SingleVT,model::RedlichKwongSoave{SINGLE},v,t)
+function fugacity_coeff_impl(mt::SingleVT,model::SoaveRedlichKwong{SINGLE},v,t)
     a,b,p =  cubic_abp(mt,model,v,t)
     RTinv = 1/(RGAS*t)
     A = a*p*RTinv*RTinv
@@ -144,7 +144,7 @@ function fugacity_coeff_impl(mt::SingleVT,model::RedlichKwongSoave{SINGLE},v,t)
      logϕ = z - _1 - log(z-B) - A/z
 end
 
-function  αR_impl(mt::MultiVT,model::RedlichKwongSoave{MULTI},rho,t,x)
+function  αR_impl(mt::MultiVT,model::SoaveRedlichKwong{MULTI},rho,t,x)
     R = RGAS
     RTinv = 1/(RGAS*t)
     v = inv(rho)
@@ -157,7 +157,7 @@ k1 = -B*(B+1) + A
 k2 = -1
 k3 = 1
 =#
-function cubic_poly(mt::SinglePT,model::RedlichKwongSoave{SINGLE},p,t)
+function cubic_poly(mt::SinglePT,model::SoaveRedlichKwong{SINGLE},p,t)
     a,b = cubic_ab(QuickStates.pt(),model,p,t)
     RTinv = 1/(RGAS*t)
     A = a*p*RTinv*RTinv
@@ -166,7 +166,7 @@ function cubic_poly(mt::SinglePT,model::RedlichKwongSoave{SINGLE},p,t)
     return (-A*B, -B*(B+_1) + A, -_1, _1)
 end
 
-function cubic_poly(mt::MultiPT,model::RedlichKwongSoave{MULTI},p,t,x)
+function cubic_poly(mt::MultiPT,model::SoaveRedlichKwong{MULTI},p,t,x)
     a,b = cubic_ab(QuickStates.ptx(),model,p,t,x)
     RTinv = 1/(RGAS*t)
     A = a*p*RTinv*RTinv

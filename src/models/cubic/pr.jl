@@ -26,7 +26,7 @@ struct PengRobinson{S,T,A} <: CubicModel
 end
 
 volume_solver_type(model::PengRobinson) = CubicRoots()
-single_sat_aprox(model::PengRobinson{SINGLE}) =PRSatAprox(model)
+single_sat_Approx(model::PengRobinson{SINGLE}) =PRSatApprox(model)
 mol_density(model::PengRobinson{SINGLE},::CriticalPoint,unit=u"mol/(m^3)") = convert_unit(u"mol/L",unit,inv(only(model.vc)))
 pressure(model::PengRobinson{SINGLE},::CriticalPoint,unit=u"Pa") = convert_unit(u"Pa",unit,only(model.pc))
 temperature(model::PengRobinson{SINGLE},::CriticalPoint,unit=u"K") = convert_unit(u"K",unit,only(model.tc))
@@ -172,25 +172,25 @@ function cubic_poly(mt::MultiPT,model::PengRobinson{MULTI},p,t,x)
 end
 
 
-struct PRSatAprox{M} <: SaturationModel
+struct PRSatApprox{M} <: SaturationModel
     model::M
-    function PRSatAprox(model::CubicModel)
+    function PRSatApprox(model::CubicModel)
         T = typeof(model)
         return new{T}(model)
     end
 end
 
-function PRSatAprox(tc,pc,mw=copy(pc),vc=nothing,ω=nothing,aij = nothing)
+function PRSatApprox(tc,pc,mw=copy(pc),vc=nothing,ω=nothing,aij = nothing)
     model = PengRobinson(tc,pc,mw,vc,ω,aij)
-    return PRSatAprox(model)
+    return PRSatApprox(model)
 end
 
-function PRSatAprox(;tc,pc,mw=copy(pc),vc=nothing,ω=nothing,aij=nothing)
+function PRSatApprox(;tc,pc,mw=copy(pc),vc=nothing,ω=nothing,aij=nothing)
     model =  PengRobinson(tc,pc,mw,vc,ω,aij)
-    return PRSatAprox(model)
+    return PRSatApprox(model)
 end
 
-function pressure_impl(mt::SingleSatT,model::PRSatAprox,t)
+function pressure_impl(mt::SingleSatT,model::PRSatApprox,t)
     a = -2.605272488488440
     b = -9.017571450539830
     c = -19.896014683288000
@@ -207,4 +207,4 @@ function pressure_impl(mt::SingleSatT,model::PRSatAprox,t)
     p = pr*pc
 end
 
-initial_temperature(model::PRSatAprox,p) = critical_sat_interpolation(model,p)
+initial_temperature(model::PRSatApprox,p) = critical_sat_interpolation(model,p)
